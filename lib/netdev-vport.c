@@ -583,6 +583,7 @@ set_tunnel_config(struct netdev *dev_, const struct smap *args, char **errp)
     memset(&tnl_cfg, 0, sizeof tnl_cfg);
 
     /* Add a default destination port for tunnel ports if none specified. */
+    tnl_cfg.gtp_random_src_port = true;
     if (!strcmp(type, "geneve")) {
         tnl_cfg.dst_port = htons(GENEVE_DST_PORT);
     }
@@ -601,11 +602,11 @@ set_tunnel_config(struct netdev *dev_, const struct smap *args, char **errp)
 
     if (!strcmp(type, "gtpu")) {
         tnl_cfg.dst_port = htons(GTPU_DST_PORT);
+        tnl_cfg.gtp_random_src_port = false;
     }
 
     needs_dst_port = netdev_vport_needs_dst_port(dev_);
     tnl_cfg.dont_fragment = true;
-
     SMAP_FOR_EACH (node, args) {
         if (!strcmp(node->key, "remote_ip")) {
             err = parse_tunnel_ip(node->value, false, &tnl_cfg.ip_dst_flow,
@@ -650,6 +651,10 @@ set_tunnel_config(struct netdev *dev_, const struct smap *args, char **errp)
             }
         } else if (!strcmp(node->key, "dst_port") && needs_dst_port) {
             tnl_cfg.dst_port = htons(atoi(node->value));
+        } else if (!strcmp(node->key, "gtp_random_src_port") && !strcmp(type, "gtpu")) {
+            if (!strcmp(node->value, "true")) {
+                tnl_cfg.gtp_random_src_port = true;
+            }
         } else if (!strcmp(node->key, "csum") && has_csum) {
             if (!strcmp(node->value, "true")) {
                 tnl_cfg.csum = true;

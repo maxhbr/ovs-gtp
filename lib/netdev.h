@@ -141,6 +141,8 @@ struct netdev_tunnel_config {
     bool erspan_idx_flow;
     bool erspan_dir_flow;
     bool erspan_hwid_flow;
+
+    bool gtp_random_src_port;
 };
 
 void netdev_run(void);

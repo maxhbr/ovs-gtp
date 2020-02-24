@@ -328,6 +328,9 @@ udp_build_header(struct netdev_tunnel_config *tnl_cfg,
 
     udp = netdev_tnl_ip_build_header(data, params, IPPROTO_UDP);
     udp->udp_dst = tnl_cfg->dst_port;
+    if (!tnl_cfg->gtp_random_src_port) {
+        udp->udp_src = tnl_cfg->dst_port;
+    }
 
     if (params->is_ipv6 || params->flow->tunnel.flags & FLOW_TNL_F_CSUM) {
         /* Write a value in now to mark that we should compute the checksum
@@ -795,10 +798,6 @@ netdev_gtpu_push_header(const struct netdev *netdev,
     payload_len = dp_packet_size(packet);
     udp = netdev_tnl_push_ip_header(packet, data->header,
                                     data->header_len, &ip_tot_size);
-    udp->udp_src = netdev_tnl_get_src_port(packet);
-    udp->udp_len = htons(ip_tot_size);
-    netdev_tnl_calc_udp_csum(udp, packet, ip_tot_size);
-
     gtpuh = ALIGNED_CAST(struct gtpuhdr *, udp + 1);
 
     tnl_cfg = &dev->tnl_cfg;
@@ -808,6 +807,12 @@ netdev_gtpu_push_header(const struct netdev *netdev,
         payload_len += sizeof(struct gtpuhdr_opt);
     }
     gtpuh->len = htons(payload_len);
+
+    if (tnl_cfg->gtp_random_src_port) {
+        udp->udp_src = netdev_tnl_get_src_port(packet);
+    }
+    udp->udp_len = htons(ip_tot_size);
+    netdev_tnl_calc_udp_csum(udp, packet, ip_tot_size);
 }
 
 int
