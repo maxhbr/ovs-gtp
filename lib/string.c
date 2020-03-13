@@ -44,3 +44,27 @@ char *strcasestr(const char *str, const char *substr)
     return NULL;
 }
 #endif
+
+/* Expect string 'd' is atleast three char longer than 's'. */
+char *
+str_quotify(const char *s, int len, char *d)
+{
+    bool found_space = false;
+    int i = 0;
+
+    d[0] = '"';
+    while(s[i] != '\0' && i <= len) {
+        d[i + 1] = s[i];
+        if (s[i] == ' ') {
+            found_space = true;
+        }
+        i++;
+    }
+    if (found_space) {
+        d[i + 1] = '"';
+        d[i + 2] = '\0';
+        return d;
+    } else {
+        return &d[1];
+    }
+}

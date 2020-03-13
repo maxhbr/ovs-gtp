@@ -45,4 +45,5 @@ char *strcasestr(const char *, const char *);
 size_t strnlen(const char *, size_t maxlen);
 #endif
 
+char *str_quotify(const char *s, int len, char *d);
 #endif /* string.h wrapper */

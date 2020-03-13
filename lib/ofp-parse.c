@@ -319,9 +319,16 @@ ofputil_parse_key_value(char **stringp, char **keyp, char **valuep)
      *     - If key_delim is "(", the value extends until ")".
      *
      * If there is no value, we are done. */
+    char *value = *stringp;
     const char *value_delims;
+    bool value_with_quote = false;
     if (key_delim == ':' || key_delim == '=') {
-        value_delims = ", \t\r\n";
+        if (*value == '\"') {
+            value_delims = "\"";
+            value_with_quote = true;
+        } else {
+            value_delims = ", \t\r\n";
+        }
     } else if (key_delim == '(') {
         value_delims = ")";
     } else {
@@ -332,8 +339,12 @@ ofputil_parse_key_value(char **stringp, char **keyp, char **valuep)
 
     /* Extract the value.  Advance the input position past the value and
      * delimiter. */
-    char *value = *stringp;
-    size_t value_len = parse_value(value, value_delims);
+    size_t value_len;
+    if (value_with_quote) {
+        value_len = parse_value(value + 1, value_delims);
+    } else {
+        value_len = parse_value(value, value_delims);
+    }
     char value_delim = value[value_len];
 
     /* Handle the special case if the value is of the form "(x)->y".
@@ -345,7 +356,11 @@ ofputil_parse_key_value(char **stringp, char **keyp, char **valuep)
         value_len += parse_value(&value[value_len], value_delims);
         value_delim = value[value_len];
     }
+    if (value_with_quote) {
+        value_len += 2;
+    }
     value[value_len] = '\0';
+
     *stringp += value_len + (value_delim != '\0');
 
     *keyp = key;

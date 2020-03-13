@@ -6297,8 +6297,11 @@ parse_SAMPLE(char *arg, const struct ofpact_parse_params *pp)
                 error = xasprintf("invalid probability value \"%s\"", value);
             }
         } else if (!strcmp(key, "apn_name")) {
+            int j = 0;
             for (i = 0; i < 24; i++) {
-                os->apn_name[i] = (uint8_t)value[i];
+                if (value[i] == '"')
+                    continue;
+                os->apn_name[j++] = (uint8_t)value[i];
                 if ((char)value[i] == '\0')
                     break;
             }
@@ -6347,18 +6350,25 @@ format_SAMPLE(const struct ofpact_sample *a,
     ds_put_format(fp->s, "%ssample(%s%sprobability=%s%"PRIu16
                   ",%scollector_set_id=%s%"PRIu32
                   ",%sobs_domain_id=%s%"PRIu32
-                  ",%sobs_point_id=%s%"PRIu32
-                  ",%sapn_mac_addr=%s"ETH_ADDR_FMT
-                  ",%smsisdn=%s%s"
-                  ",%sapn_name=%s%s",
+                  ",%sobs_point_id=%s%"PRIu32,
                   colors.paren, colors.end,
                   colors.param, colors.end, a->probability,
                   colors.param, colors.end, a->collector_set_id,
                   colors.param, colors.end, a->obs_domain_id,
-                  colors.param, colors.end, a->obs_point_id,
-                  colors.param, colors.end, ETH_ADDR_ARGS(a->apn_mac_addr),
-                  colors.param, colors.end, a->msisdn,
-                  colors.param, colors.end, a->apn_name);
+                  colors.param, colors.end, a->obs_point_id);
+    if (!eth_addr_is_zero(a->apn_mac_addr)) {
+        ds_put_format(fp->s,  ",%sapn_mac_addr=%s"ETH_ADDR_FMT,
+                  colors.param, colors.end, ETH_ADDR_ARGS(a->apn_mac_addr));
+
+    }
+    if (strlen((const char *)a->msisdn)) {
+        ds_put_format(fp->s, ",%smsisdn=%s%s", colors.param, colors.end, a->msisdn);
+    }
+    if (strlen((const char *)a->apn_name)) {
+        char buf[32], *name;
+        name = str_quotify((char *)a->apn_name, 24, buf);
+        ds_put_format(fp->s, ",%sapn_name=%s%s", colors.param, colors.end, name);
+    }
     if (a->sampling_port != OFPP_NONE) {
         ds_put_format(fp->s, ",%ssampling_port=%s", colors.param, colors.end);
         ofputil_format_port(a->sampling_port, fp->port_map, fp->s);
