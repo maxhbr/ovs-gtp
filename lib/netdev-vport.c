@@ -654,6 +654,7 @@ set_tunnel_config(struct netdev *dev_, const struct smap *args, char **errp)
             if (!strcmp(node->value, "true")) {
                 tnl_cfg.csum = true;
             }
+            tnl_cfg.user_setcsum = true;
         } else if (!strcmp(node->key, "seq") && has_seq) {
             if (!strcmp(node->value, "true")) {
                 tnl_cfg.set_seq = true;

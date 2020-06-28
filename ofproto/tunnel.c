@@ -437,6 +437,11 @@ tnl_port_send(const struct ofport_dpif *ofport, struct flow *flow,
         flow->tunnel.tun_id = cfg->out_key;
     }
 
+    if (!cfg->out_key_flow && !cfg->out_key_present) {
+        /* since OAM is never set via OVSDB, do not touch that bit. */
+        flow->tunnel.flags &= FLOW_TNL_F_OAM;
+    }
+
     if (cfg->ttl_inherit && is_ip_any(flow)) {
         wc->masks.nw_ttl = 0xff;
         flow->tunnel.ip_ttl = flow->nw_ttl;
@@ -467,6 +472,13 @@ tnl_port_send(const struct ofport_dpif *ofport, struct flow *flow,
         | (cfg->csum ? FLOW_TNL_F_CSUM : 0)
         | (cfg->out_key_present ? FLOW_TNL_F_KEY : 0);
 
+    if (cfg->user_setcsum) {
+       if (cfg->csum) {
+           flow->tunnel.flags |= FLOW_TNL_F_CSUM;
+       } else {
+           flow->tunnel.flags &= ~FLOW_TNL_F_CSUM;
+       }
+    }
     if (cfg->set_egress_pkt_mark) {
         flow->pkt_mark = cfg->egress_pkt_mark;
         wc->masks.pkt_mark = UINT32_MAX;

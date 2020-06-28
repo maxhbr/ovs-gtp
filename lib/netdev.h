@@ -126,6 +126,7 @@ struct netdev_tunnel_config {
     bool tos_inherit;
 
     bool csum;
+    bool user_setcsum;
     bool dont_fragment;
     enum netdev_pt_mode pt_mode;
 

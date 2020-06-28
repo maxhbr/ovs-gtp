@@ -380,7 +380,7 @@ enum OVS_PACKED_ENUM mf_field_id {
      *
      * For non-tunneled packets, the value is 0.
      *
-     * Type: be16 (low 1 bits).
+     * Type: be16 (low 4 bits).
      * Maskable: bitwise.
      * Formatting: tunnel flags.
      * Prerequisites: none.

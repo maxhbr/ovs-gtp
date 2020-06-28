@@ -1205,3 +1205,51 @@ Datapath actions: push_eth(src=00:00:00:00:00:00,dst=00:00:00:00:00:00),1
 
 OVS_VSWITCHD_STOP
 AT_CLEANUP
+
+AT_SETUP([tunnel - validate tun-flags OAM])
+OVS_VSWITCHD_START([add-port br0 p1 -- set Interface p1 type=geneve \
+                    options:remote_ip=1.1.1.1 options:csum=true ofport_request=1 \
+                    -- add-port br0 p2 -- set Interface p2 type=dummy \
+                    ofport_request=2 ofport_request=2 \
+                    -- add-port br0 p3 -- set Interface p3 type=gre \
+                    options:remote_ip=2.2.2.2 options:csum=false options:key=123 ofport_request=3])
+OVS_VSWITCHD_DISABLE_TUNNEL_PUSH_POP
+
+AT_DATA([flows.txt], [dnl
+actions=load:0x1->NXM_NX_TUN_FLAGS[[]],output:1
+])
+AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
+AT_CHECK([ovs-appctl ofproto/trace ovs-dummy 'in_port(2),eth(src=50:54:00:00:00:05,dst=50:54:00:00:00:07),eth_type(0x0800),ipv4(src=192.168.0.1,dst=192.168.0.2,proto=6,tos=4,ttl=128,frag=no),tcp(src=8,dst=9)'], [0], [stdout])
+AT_CHECK([tail -1 stdout], [0],
+  [Datapath actions: set(tunnel(dst=1.1.1.1,ttl=64,tp_dst=6081,flags(oam|df|csum))),6081
+])
+OVS_VSWITCHD_STOP
+AT_CLEANUP
+
+AT_SETUP([tunnel - validate tun-flags key])
+OVS_VSWITCHD_START([add-port br0 p1 -- set Interface p1 type=geneve \
+                    options:remote_ip=1.1.1.1 options:key=flow options:csum=true ofport_request=1 \
+                    -- add-port br0 p2 -- set Interface p2 type=dummy \
+                    ofport_request=2 ofport_request=2 \
+                    -- add-port br0 p3 -- set Interface p3 type=gre \
+                    options:remote_ip=2.2.2.2 options:csum=false options:key=123 ofport_request=3])
+OVS_VSWITCHD_DISABLE_TUNNEL_PUSH_POP
+
+AT_DATA([flows.txt], [dnl
+actions=load:0x8->NXM_NX_TUN_FLAGS[[]],output:1
+table=2,actions=move:NXM_NX_TUN_FLAGS[[]]->NXM_NX_REG4[[0..3]],output:1
+])
+AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
+
+AT_CHECK([ovs-ofctl dump-flows br0], [0], [stdout])
+AT_CHECK([strip_xids < stdout | sed -n 's/duration=[[0-9]]*\.[[0-9]]*s/duration=0.0s/p' | sort], [0], [dnl
+ cookie=0x0, duration=0.0s, table=0, n_packets=0, n_bytes=0, idle_age=0, actions=load:0x8->NXM_NX_TUN_FLAGS[[]],output:1
+ cookie=0x0, duration=0.0s, table=2, n_packets=0, n_bytes=0, idle_age=0, actions=move:NXM_NX_TUN_FLAGS[[]]->NXM_NX_REG4[[0..3]],output:1
+])
+
+AT_CHECK([ovs-appctl ofproto/trace ovs-dummy 'in_port(2),eth(src=50:54:00:00:00:05,dst=50:54:00:00:00:07),eth_type(0x0800),ipv4(src=192.168.0.1,dst=192.168.0.2,proto=6,tos=4,ttl=128,frag=no),tcp(src=8,dst=9)'], [0], [stdout])
+AT_CHECK([tail -1 stdout], [0],
+  [Datapath actions: set(tunnel(tun_id=0x0,dst=1.1.1.1,ttl=64,tp_dst=6081,flags(df|csum|key))),6081
+])
+OVS_VSWITCHD_STOP
+AT_CLEANUP

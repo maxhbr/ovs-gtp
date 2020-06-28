@@ -55,9 +55,7 @@ struct flow_tnl {
 /* Public flags */
 #define FLOW_TNL_F_OAM (1 << 0)
 
-#define FLOW_TNL_PUB_F_MASK ((1 << 1) - 1)
-
-/* Private flags */
+#define FLOW_TNL_PUB_F_MASK ((1 << 4) - 1)
 #define FLOW_TNL_F_DONT_FRAGMENT (1 << 1)
 #define FLOW_TNL_F_CSUM (1 << 2)
 #define FLOW_TNL_F_KEY (1 << 3)
