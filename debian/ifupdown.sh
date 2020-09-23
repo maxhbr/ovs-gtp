@@ -77,9 +77,13 @@ if [ "${MODE}" = "start" ]; then
                     ${OVS_EXTRA+-- $OVS_EXTRA}
                 ;;
         OVSTunnel)
+                if [ "$IF_OVS_TUNNEL_TYPE" = "gtp" ]; then
+                    OVS_TUNNEL_TYPE="gtpu"
+                fi
+
                 ovs_vsctl -- --may-exist add-port "${IF_OVS_BRIDGE}"\
                     "${IFACE}" ${IF_OVS_OPTIONS} -- set Interface "${IFACE}" \
-                    type=${IF_OVS_TUNNEL_TYPE} ${IF_OVS_TUNNEL_OPTIONS} \
+                    type=${OVS_TUNNEL_TYPE} ${IF_OVS_TUNNEL_OPTIONS} \
                     ${OVS_EXTRA+-- $OVS_EXTRA}
                 ;;
         *)

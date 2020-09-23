@@ -153,6 +153,10 @@ case "$TYPE" in
                 ;;
         OVSTunnel)
                 ifup_ovs_bridge
+
+                if [ "$OVS_TUNNEL_TYPE" = "gtp" ]; then
+                    OVS_TUNNEL_TYPE="gtpu"
+                fi
                 ovs-vsctl -t ${TIMEOUT} \
                         -- --if-exists del-port "$OVS_BRIDGE" "$DEVICE" \
                         -- add-port "$OVS_BRIDGE" "$DEVICE" $OVS_OPTIONS \
