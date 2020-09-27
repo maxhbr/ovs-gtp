@@ -160,8 +160,10 @@ static void rt_init_match(struct match *match, uint32_t mark,
     memset(match, 0, sizeof *match);
     match->flow.ipv6_dst = dst;
     match->wc.masks.ipv6_dst = mask;
-    match->wc.masks.pkt_mark = UINT32_MAX;
-    match->flow.pkt_mark = mark;
+    if (mark) {
+        match->wc.masks.pkt_mark = UINT32_MAX;
+        match->flow.pkt_mark = mark;
+    }
 }
 
 static int
