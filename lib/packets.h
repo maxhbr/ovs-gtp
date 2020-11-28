@@ -1426,14 +1426,31 @@ static inline ovs_be32 get_erspan_ts(enum erspan_ts_gra gra)
 #define GTPU_MSGTYPE_REPL   2   /* Echo Reply. */
 #define GTPU_MSGTYPE_GPDU   255 /* User Payload. */
 
+enum {
+    GTP_METADATA_V1
+};
+
+#define GTP_FLAGS_SEQ   0x02
+
 struct gtpu_metadata {
+    uint8_t ver;
     uint8_t flags;
     uint8_t msgtype;
 };
-BUILD_ASSERT_DECL(sizeof(struct gtpu_metadata) == 2);
+BUILD_ASSERT_DECL(sizeof(struct gtpu_metadata) == 3);
 
+/*
+ * GTP flags:
+ * 001-  ----    Version: GTP release 99: ver (1)
+ * ---1  ----    Protocol type: GTP(1)
+ * ----  0---    Reserved.
+ * ----  -1--    Extension header present.
+ * ----  --1-    Seq number is present.
+ * ----  ---1    Is N-PDU number present.
+ */
 struct gtpuhdr {
-    struct gtpu_metadata md;
+    uint8_t flags;
+    uint8_t msgtype;
     ovs_be16 len;
     ovs_16aligned_be32 teid;
 };

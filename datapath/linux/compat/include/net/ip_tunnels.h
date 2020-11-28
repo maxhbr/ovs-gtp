@@ -109,10 +109,11 @@ void rpl_ip_tunnel_xmit(struct sk_buff *skb, struct net_device *dev,
 #define TUNNEL_VXLAN_OPT	__cpu_to_be16(0x1000)
 #define TUNNEL_NOCACHE		__cpu_to_be16(0x2000)
 #define TUNNEL_ERSPAN_OPT	__cpu_to_be16(0x4000)
+#define TUNNEL_GTPU_OPT		__cpu_to_be16(0x8000)
 
 #undef TUNNEL_OPTIONS_PRESENT
 #define TUNNEL_OPTIONS_PRESENT \
-		(TUNNEL_GENEVE_OPT | TUNNEL_VXLAN_OPT | TUNNEL_ERSPAN_OPT)
+		(TUNNEL_GENEVE_OPT | TUNNEL_VXLAN_OPT | TUNNEL_ERSPAN_OPT | TUNNEL_GTPU_OPT)
 
 struct tnl_ptk_info {
 	__be16 flags;
@@ -509,5 +510,9 @@ static inline int iptunnel_pull_offloads(struct sk_buff *skb)
 
 #define skb_is_encapsulated ovs_skb_is_encapsulated
 bool ovs_skb_is_encapsulated(struct sk_buff *skb);
+
+#ifndef TUNNEL_GTPU_OPT
+#define TUNNEL_GTPU_OPT          __cpu_to_be16(0x8000)
+#endif
 
 #endif /* __NET_IP_TUNNELS_H */

@@ -2525,8 +2525,7 @@ parse_odp_packet(struct ofpbuf *buf, struct dpif_upcall *upcall,
 {
     static const struct nl_policy ovs_packet_policy[] = {
         /* Always present. */
-        [OVS_PACKET_ATTR_PACKET] = { .type = NL_A_UNSPEC,
-                                     .min_len = ETH_HEADER_LEN },
+        [OVS_PACKET_ATTR_PACKET] = { .type = NL_A_UNSPEC },
         [OVS_PACKET_ATTR_KEY] = { .type = NL_A_NESTED },
 
         /* OVS_PACKET_CMD_ACTION only. */

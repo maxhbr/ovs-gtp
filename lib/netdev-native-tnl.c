@@ -743,14 +743,14 @@ netdev_gtpu_pop_header(struct dp_packet *packet)
         goto err;
     }
 
-    tnl->gtpu_flags = gtph->md.flags;
-    tnl->gtpu_msgtype = gtph->md.msgtype;
+    tnl->gtpu_flags = gtph->flags;
+    tnl->gtpu_msgtype = gtph->msgtype;
     tnl->tun_id = be32_to_be64(get_16aligned_be32(&gtph->teid));
 
     if (tnl->gtpu_msgtype == GTPU_MSGTYPE_GPDU) {
         struct ip_header *ip;
 
-        if (gtph->md.flags & GTPU_S_MASK) {
+        if (gtph->flags & GTPU_S_MASK) {
             gtpu_hlen = GTPU_HLEN + sizeof(struct gtpuhdr_opt);
         } else {
             gtpu_hlen = GTPU_HLEN;
@@ -773,7 +773,7 @@ netdev_gtpu_pop_header(struct dp_packet *packet)
          */
         packet->packet_type = htonl(PT_ETH);
         VLOG_WARN_ONCE("Receive non-GPDU msgtype: %"PRIu8,
-                       gtph->md.msgtype);
+                       gtph->msgtype);
     }
 
     return packet;
@@ -830,16 +830,16 @@ netdev_gtpu_build_header(const struct netdev *netdev,
     gtph = udp_build_header(tnl_cfg, data, params);
 
     /* Set to default if not set in flow. */
-    gtph->md.flags = params->flow->tunnel.gtpu_flags ?
-                     params->flow->tunnel.gtpu_flags : GTPU_FLAGS_DEFAULT;
-    gtph->md.msgtype = params->flow->tunnel.gtpu_msgtype ?
-                       params->flow->tunnel.gtpu_msgtype : GTPU_MSGTYPE_GPDU;
+    gtph->flags = params->flow->tunnel.gtpu_flags ?
+                  params->flow->tunnel.gtpu_flags : GTPU_FLAGS_DEFAULT;
+    gtph->msgtype = params->flow->tunnel.gtpu_msgtype ?
+                    params->flow->tunnel.gtpu_msgtype : GTPU_MSGTYPE_GPDU;
     put_16aligned_be32(&gtph->teid,
                        be64_to_be32(params->flow->tunnel.tun_id));
 
     gtpu_hlen = sizeof *gtph;
     if (tnl_cfg->set_seq) {
-        gtph->md.flags |= GTPU_S_MASK;
+        gtph->flags |= GTPU_S_MASK;
         gtpu_hlen += sizeof(struct gtpuhdr_opt);
     }
     ovs_mutex_unlock(&dev->mutex);

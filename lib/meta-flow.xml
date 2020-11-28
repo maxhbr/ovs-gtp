@@ -1876,6 +1876,17 @@ ovs-ofctl add-flow br-int 'in_port=3,tun_src=192.168.1.1,tun_id=5001 actions=1'
       The complete range of message types can be referred to [3GPP TS 29.281].
     </field>
 
+    <h2>GTP Fields</h2>
+
+    <field id="MFF_TUN_GTPU_MSGTYPE" title="Message type of GTP control plane packet">
+      This field is typically used to generate GTP Echo request response packets.
+    </field>
+
+    <field id="MFF_TUN_GTPU_FLAGS" title="GTP control plane packet flags">
+      GTP-C packets needs sequence number. This field allows controller to set it.
+    </field>
+
+
     <h2>Geneve Fields</h2>
 
     <p>

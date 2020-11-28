@@ -7,4 +7,13 @@
 #define GTPA_PEER_ADDRESS GTPA_SGSN_ADDRESS
 #endif
 
+enum {
+	GTP_METADATA_V1
+};
+
+struct gtpu_metadata {
+	__u8	ver;
+	__u8	flags;
+	__u8	type;
+};
 #endif

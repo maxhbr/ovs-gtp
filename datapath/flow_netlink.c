@@ -23,6 +23,7 @@
 #include <linux/etherdevice.h>
 #include <linux/if_ether.h>
 #include <linux/if_vlan.h>
+#include <linux/gtp.h>
 #include <net/llc_pdu.h>
 #include <linux/kernel.h>
 #include <linux/jhash.h>
@@ -406,6 +407,7 @@ static const struct ovs_len_tbl ovs_tunnel_key_lens[OVS_TUNNEL_KEY_ATTR_MAX + 1]
 	[OVS_TUNNEL_KEY_ATTR_IPV6_SRC]      = { .len = sizeof(struct in6_addr) },
 	[OVS_TUNNEL_KEY_ATTR_IPV6_DST]      = { .len = sizeof(struct in6_addr) },
 	[OVS_TUNNEL_KEY_ATTR_ERSPAN_OPTS]   = { .len = OVS_ATTR_VARIABLE },
+	[OVS_TUNNEL_KEY_ATTR_GTPU_OPTS]   = { .len = OVS_ATTR_VARIABLE },
 };
 
 static const struct ovs_len_tbl
@@ -664,6 +666,33 @@ static int erspan_tun_opt_from_nlattr(const struct nlattr *a,
 	return 0;
 }
 
+static int gtp_tun_opt_from_nlattr(const struct nlattr *a,
+				   struct sw_flow_match *match, bool is_mask,
+				   bool log)
+{
+	unsigned long opt_key_offset;
+
+	BUILD_BUG_ON(sizeof(struct gtpu_metadata) >
+		     sizeof(match->key->tun_opts));
+
+	if (nla_len(a) > sizeof(match->key->tun_opts)) {
+		OVS_NLERR(log, "GTP option length err (len %d, max %zu).",
+			  nla_len(a), sizeof(match->key->tun_opts));
+		return -EINVAL;
+	}
+
+	if (!is_mask)
+		SW_FLOW_KEY_PUT(match, tun_opts_len,
+				sizeof(struct gtpu_metadata), false);
+	else
+		SW_FLOW_KEY_PUT(match, tun_opts_len, 0xff, true);
+
+	opt_key_offset = TUN_METADATA_OFFSET(nla_len(a));
+	SW_FLOW_KEY_MEMCPY_OFFSET(match, opt_key_offset, nla_data(a),
+				  nla_len(a), is_mask);
+	return 0;
+}
+
 static int ip_tun_from_nlattr(const struct nlattr *attr,
 			      struct sw_flow_match *match, bool is_mask,
 			      bool log)
@@ -785,6 +814,21 @@ static int ip_tun_from_nlattr(const struct nlattr *attr,
 			tun_flags |= TUNNEL_ERSPAN_OPT;
 			opts_type = type;
 			break;
+		case OVS_TUNNEL_KEY_ATTR_GTPU_OPTS:
+			if (opts_type) {
+				OVS_NLERR(log, "Multiple metadata blocks provided");
+				return -EINVAL;
+			}
+
+			err = gtp_tun_opt_from_nlattr(a, match, is_mask,
+							 log);
+			if (err)
+				return err;
+
+			tun_flags |= TUNNEL_GTPU_OPT;
+			opts_type = type;
+			break;
+
 		default:
 			OVS_NLERR(log, "Unknown IP tunnel attribute %d",
 				  type);
@@ -911,6 +955,10 @@ static int __ip_tun_to_nlattr(struct sk_buff *skb,
 			return -EMSGSIZE;
 		else if (output->tun_flags & TUNNEL_ERSPAN_OPT &&
 			 nla_put(skb, OVS_TUNNEL_KEY_ATTR_ERSPAN_OPTS,
+				 swkey_tun_opts_len, tun_opts))
+			return -EMSGSIZE;
+		else if (output->tun_flags & TUNNEL_GTPU_OPT &&
+			 nla_put(skb, OVS_TUNNEL_KEY_ATTR_GTPU_OPTS,
 				 swkey_tun_opts_len, tun_opts))
 			return -EMSGSIZE;
 	}
@@ -1995,7 +2043,8 @@ static int __ovs_nla_put_key(const struct sw_flow_key *swkey,
 	if ((swkey->tun_proto || is_mask)) {
 		const void *opts = NULL;
 
-		if (output->tun_key.tun_flags & TUNNEL_OPTIONS_PRESENT)
+		if (swkey->tun_opts_len ||
+                        (output->tun_key.tun_flags & TUNNEL_OPTIONS_PRESENT))
 			opts = TUN_METADATA_OPTS(output, swkey->tun_opts_len);
 
 		if (ip_tun_to_nlattr(skb, &output->tun_key, opts,
@@ -2601,6 +2650,9 @@ static int validate_and_copy_set_tun(const struct nlattr *attr,
 			break;
 		case OVS_TUNNEL_KEY_ATTR_ERSPAN_OPTS:
 			dst_opt_type = TUNNEL_ERSPAN_OPT;
+			break;
+		case OVS_TUNNEL_KEY_ATTR_GTPU_OPTS:
+			dst_opt_type = TUNNEL_GTPU_OPT;
 			break;
 		}
 	}
