@@ -650,6 +650,8 @@ AC_DEFUN([OVS_CHECK_LINUX_COMPAT], [
 
   OVS_GREP_IFELSE([$KSRC/include/uapi/linux/if_link.h], [IFLA_GENEVE_TOS])
   OVS_GREP_IFELSE([$KSRC/include/uapi/linux/if_link.h], [rtnl_link_stats64])
+  OVS_GREP_IFELSE([$KSRC/include/uapi/linux/if_link.h], [GTP_ROLE_GGSN])
+  OVS_GREP_IFELSE([$KSRC/include/uapi/linux/if_link.h], [IFLA_GTP_ROLE])
   OVS_GREP_IFELSE([$KSRC/include/linux/if_link.h], [rtnl_link_stats64])
   OVS_GREP_IFELSE([$KSRC/include/linux/if_vlan.h], [vlan_set_encap_proto])
   OVS_GREP_IFELSE([$KSRC/include/linux/if_vlan.h], [vlan_hwaccel_push_inside])
@@ -684,6 +686,7 @@ AC_DEFUN([OVS_CHECK_LINUX_COMPAT], [
                   [OVS_DEFINE([HAVE_INET_FRAGS_LAST_IN])])
   OVS_GREP_IFELSE([$KSRC/include/net/inet_frag.h], [inet_frag_evicting])
   OVS_GREP_IFELSE([$KSRC/include/net/inet_frag.h], [inet_frag_evictor])
+  OVS_GREP_IFELSE([$KSRC/include/net/ipv6_frag.h], [_IPV6_FRAG_H])
   OVS_FIND_FIELD_IFELSE([$KSRC/include/net/inet_frag.h], [inet_frags],
                         [frags_work])
   OVS_FIND_FIELD_IFELSE([$KSRC/include/net/inet_frag.h], [inet_frags],
@@ -982,6 +985,7 @@ AC_DEFUN([OVS_CHECK_LINUX_COMPAT], [
                   [OVS_DEFINE([HAVE_NET_NAME_UNKNOWN])])
 
   OVS_GREP_IFELSE([$KSRC/include/net/sock.h], [sk_no_check_tx])
+  OVS_GREP_IFELSE([$KSRC/include/net/sock.h], [refcount_read], [OVS_DEFINE([HAVE_SOCK_REFCNT])])
   OVS_GREP_IFELSE([$KSRC/include/linux/udp.h], [no_check6_tx])
   OVS_FIND_PARAM_IFELSE([$KSRC/include/net/protocol.h],
                         [udp_add_offload], [net],

@@ -323,6 +323,13 @@ m4_define([OVS_CHECK_GENEVE_UDP6ZEROCSUM],
     [AT_SKIP_IF([! ip link add foo type geneve help 2>&1 | grep udp6zerocsum >/dev/null])
      OVS_CHECK_FIREWALL()])
 
+# OVS_CHECK_GTP_L3()
+# GTP Unit test depends on http://git.osmocom.org/libgtpnl/
+m4_define([OVS_CHECK_GTP_L3],
+    [AT_SKIP_IF([! gtp-tunnel list >/dev/null])
+     OVS_CHECK_FIREWALL()])
+
+
 # OVS_CHECK_8021AD()
 m4_define([OVS_CHECK_8021AD],
     [AT_SKIP_IF([! grep -q "VLAN header stack length probed as" ovs-vswitchd.log])

@@ -168,4 +168,20 @@ struct rtnl_link_stats64 {
 };
 #endif
 
+#ifndef HAVE_GTP_ROLE_GGSN
+/* GTP section */
+
+enum ifla_gtp_role {
+        GTP_ROLE_GGSN = 0,
+        GTP_ROLE_SGSN,
+};
+#endif
+
+#ifndef HAVE_IFLA_GTP_ROLE
+
+enum {
+	IFLA_GTP_ROLE = (IFLA_GTP_PDP_HASHSIZE + 1)
+};
+#endif
+
 #endif

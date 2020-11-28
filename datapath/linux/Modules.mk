@@ -4,6 +4,7 @@ openvswitch_sources += \
 	linux/compat/exthdrs_core.c \
 	linux/compat/geneve.c \
 	linux/compat/gre.c \
+	linux/compat/gtp.c \
 	linux/compat/gso.c \
 	linux/compat/genetlink-openvswitch.c \
 	linux/compat/inet_fragment.c \
@@ -41,6 +42,7 @@ openvswitch_headers += \
 	linux/compat/include/linux/err.h \
 	linux/compat/include/linux/etherdevice.h \
 	linux/compat/include/linux/genetlink.h \
+	linux/compat/include/linux/gtp.h \
 	linux/compat/include/linux/if.h \
 	linux/compat/include/linux/if_ether.h \
 	linux/compat/include/linux/if_link.h \
@@ -78,6 +80,7 @@ openvswitch_headers += \
 	linux/compat/include/net/genetlink.h \
 	linux/compat/include/net/geneve.h \
 	linux/compat/include/net/gre.h \
+	linux/compat/include/net/gtp.h \
 	linux/compat/include/net/inet_ecn.h \
 	linux/compat/include/net/inet_frag.h \
 	linux/compat/include/net/inetpeer.h \

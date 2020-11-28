@@ -14,6 +14,7 @@
 #include <net/net_namespace.h>
 #include <net/ip6_checksum.h>
 #include <net/ip6_tunnel.h>
+#include <net/dst_metadata.h>
 
 #include "gso.h"
 
@@ -288,5 +289,4 @@ void ovs_udp_csum_gso(struct sk_buff *skb)
 }
 EXPORT_SYMBOL_GPL(ovs_udp_csum_gso);
 #endif /* USE_UPSTREAM_TUNNEL_GSO */
-
 #endif

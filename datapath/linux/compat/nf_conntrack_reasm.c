@@ -36,6 +36,7 @@
 #include <linux/random.h>
 #include <linux/slab.h>
 
+#include <net/ipv6_frag.h>
 #include <net/sock.h>
 #include <net/snmp.h>
 #include <net/inet_frag.h>

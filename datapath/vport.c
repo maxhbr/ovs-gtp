@@ -33,6 +33,7 @@
 #include <net/lisp.h>
 #include <net/gre.h>
 #include <net/geneve.h>
+#include <net/gtp.h>
 #include <net/stt.h>
 #include <net/vxlan.h>
 
@@ -107,8 +108,12 @@ skip_ip6_tunnel_init:
 	err = ovs_stt_init_module();
 	if (err)
 		goto err_stt;
-
+	err = gtp_init_module();
+	if (err)
+		goto err_gtp;
+ 
 	return 0;
+err_gtp:
 	ovs_stt_cleanup_module();
 err_stt:
 	vxlan_cleanup_module();
@@ -136,6 +141,7 @@ err_lisp:
  */
 void ovs_vport_exit(void)
 {
+	gtp_cleanup_module();
 	if (compat_gre_loaded) {
 		gre_exit();
 		ipgre_fini();

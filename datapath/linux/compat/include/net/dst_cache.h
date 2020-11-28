@@ -4,7 +4,6 @@
 #ifdef USE_BUILTIN_DST_CACHE
 #include_next <net/dst_cache.h>
 #else
-
 #include <linux/jiffies.h>
 #include <net/dst.h>
 #if IS_ENABLED(CONFIG_IPV6)

@@ -8,6 +8,7 @@ both_modules = \
 	$(build_multi_modules) \
 	vport_geneve \
 	vport_gre \
+	vport_gtp \
 	vport_lisp \
 	vport_stt \
 	vport_vxlan
@@ -33,6 +34,7 @@ openvswitch_sources = \
 vport_geneve_sources = vport-geneve.c
 vport_vxlan_sources = vport-vxlan.c
 vport_gre_sources = vport-gre.c
+vport_gtp_sources = vport-gtp.c
 vport_lisp_sources = vport-lisp.c
 vport_stt_sources = vport-stt.c
 nsh_sources = nsh.c

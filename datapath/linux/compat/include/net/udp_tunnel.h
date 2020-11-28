@@ -203,6 +203,6 @@ static inline void ovs_udp_tun_rx_dst(struct metadata_dst *md_dst,
 	if (udp_hdr(skb)->check)
 		info->key.tun_flags |= TUNNEL_CSUM;
 }
-#endif /* USE_UPSTREAM_TUNNEL */
 
+#endif /* USE_UPSTREAM_TUNNEL */
 #endif
