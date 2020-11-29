@@ -9,9 +9,6 @@
  * be used. Those needs to be explicitly defined in this header file. */
 #include_next <net/ip_tunnels.h>
 
-#ifndef TUNNEL_ERSPAN_OPT
-#define TUNNEL_ERSPAN_OPT	__cpu_to_be16(0x4000)
-#endif
 #define ovs_ip_tunnel_encap ip_tunnel_encap
 
 #ifndef HAVE_IP_TUNNEL_INFO_OPTS_SET_FLAGS
@@ -510,6 +507,10 @@ static inline int iptunnel_pull_offloads(struct sk_buff *skb)
 
 #define skb_is_encapsulated ovs_skb_is_encapsulated
 bool ovs_skb_is_encapsulated(struct sk_buff *skb);
+
+#ifndef TUNNEL_ERSPAN_OPT
+#define TUNNEL_ERSPAN_OPT	__cpu_to_be16(0x4000)
+#endif
 
 #ifndef TUNNEL_GTPU_OPT
 #define TUNNEL_GTPU_OPT          __cpu_to_be16(0x8000)

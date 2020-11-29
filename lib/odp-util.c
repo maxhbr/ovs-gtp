@@ -5223,9 +5223,23 @@ scan_gtpu_metadata(const char *s,
                    struct gtpu_metadata *mask)
 {
     const char *s_base = s;
+    uint8_t ver = 0, ver_ma = 0;
     uint8_t flags = 0, flags_ma = 0;
     uint8_t msgtype = 0, msgtype_ma = 0;
     int len;
+
+    if (!strncmp(s, "ver=", 4)) {
+        s += 4;
+        len = scan_u8(s, &ver, mask ? &ver_ma : NULL);
+        if (len == 0) {
+            return 0;
+        }
+        s += len;
+    }
+    if (s[0] == ',') {
+        s++;
+    }
+
 
     if (!strncmp(s, "flags=", 6)) {
         s += 6;
@@ -5251,9 +5265,11 @@ scan_gtpu_metadata(const char *s,
 
     if (!strncmp(s, ")", 1)) {
         s += 1;
+        key->ver = ver;
         key->flags = flags;
         key->msgtype = msgtype;
         if (mask) {
+            mask->ver = ver_ma;
             mask->flags = flags_ma;
             mask->msgtype = msgtype_ma;
         }

@@ -41,9 +41,11 @@
 #include <linux/icmp.h>
 #include <linux/icmpv6.h>
 #include <linux/rculist.h>
+#include <linux/openvswitch.h>
 #include <net/geneve.h>
 #include <net/ip.h>
 #include <net/ipv6.h>
+#include <net/ip_tunnels.h>
 #include <net/ndisc.h>
 #include <net/mpls.h>
 #include <net/vxlan.h>

@@ -21,7 +21,6 @@
 #include <linux/file.h>
 #include <linux/gtp.h>
 
-#include <net/dst_cache.h>
 #include <net/dst_metadata.h>
 #include <net/net_namespace.h>
 #include <net/protocol.h>
@@ -190,6 +189,15 @@ static bool gtp_check_ms(struct sk_buff *skb, struct pdp_ctx *pctx,
 	return false;
 }
 
+static int check_header(struct sk_buff *skb, int len)
+{
+	if (unlikely(skb->len < len))
+		return -EINVAL;
+	if (unlikely(!pskb_may_pull(skb, len)))
+		return -ENOMEM;
+	return 0;
+}
+
 static int gtp_rx(struct gtp_dev *gtp, struct sk_buff *skb,
 			unsigned int hdrlen, u8 gtp_version, unsigned int role,
 			__be64 tid, u8 flags, u8 type)
@@ -283,6 +291,20 @@ static int gtp_rx(struct gtp_dev *gtp, struct sk_buff *skb,
 	 * calculate the transport header.
 	 */
 	skb_reset_network_header(skb);
+	if (!check_header(skb, sizeof(struct iphdr))) {
+		struct iphdr *iph;
+
+		iph = ip_hdr(skb);
+		if (iph->version == 4) {
+			netdev_dbg(gtp->dev, "inner pkt: ipv4");
+			skb->protocol = htons(ETH_P_IP);
+		} else if (iph->version == 6) {
+			netdev_dbg(gtp->dev, "inner pkt: ipv6");
+			skb->protocol = htons(ETH_P_IPV6);
+		} else {
+			netdev_dbg(gtp->dev, "inner pkt: control pkt");
+		}
+	}
 
 	skb->dev = gtp->dev;
 
@@ -582,8 +604,6 @@ static struct rtable *gtp_get_v4_rt(struct sk_buff *skb,
                                        struct flowi4 *fl4,
                                        const struct ip_tunnel_info *info)
 {
-	bool use_cache = ip_tunnel_dst_cache_usable(skb, info);
-	struct dst_cache *dst_cache;
 	struct rtable *rt = NULL;
 
 	if (!gs4)
@@ -596,12 +616,6 @@ static struct rtable *gtp_get_v4_rt(struct sk_buff *skb,
 	fl4->saddr = info->key.u.ipv4.src;
 	fl4->flowi4_tos = RT_TOS(info->key.tos);
 
-	dst_cache = (struct dst_cache *)&info->dst_cache;
-	if (use_cache) {
-		rt = dst_cache_get_ip4(dst_cache, &fl4->saddr);
-		if (rt)
-			return rt;
-	}
 	rt = ip_route_output_key(dev_net(dev), fl4);
 	if (IS_ERR(rt)) {
 		netdev_dbg(dev, "no route to %pI4\n", &fl4->daddr);
@@ -612,8 +626,6 @@ static struct rtable *gtp_get_v4_rt(struct sk_buff *skb,
 		ip_rt_put(rt);
 		return ERR_PTR(-ELOOP);
 	}
-	if (use_cache)
-		dst_cache_set_ip4(dst_cache, &rt->dst, fl4->saddr);
 	return rt;
 }
 
