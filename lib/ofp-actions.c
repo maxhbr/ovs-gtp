@@ -6156,10 +6156,13 @@ struct nx_action_sample2 {
     ovs_be32 obs_domain_id;         /* ID of sampling observation domain. */
     ovs_be32 obs_point_id;          /* ID of sampling observation point. */
     ovs_be16 sampling_port;         /* Sampling port. */
+    uint8_t  msisdn[16];
+    struct   eth_addr apn_mac_addr;
+    uint8_t  apn_name[24];
     uint8_t  direction;             /* NXAST_SAMPLE3 only. */
     uint8_t  zeros[5];              /* Pad to a multiple of 8 bytes */
  };
- OFP_ASSERT(sizeof(struct nx_action_sample2) == 32);
+ OFP_ASSERT(sizeof(struct nx_action_sample2) == 80);
 
 static enum ofperr
 decode_NXAST_RAW_SAMPLE(const struct nx_action_sample *nas,
@@ -6196,6 +6199,9 @@ decode_SAMPLE2(const struct nx_action_sample2 *nas,
     sample->obs_domain_id = ntohl(nas->obs_domain_id);
     sample->obs_point_id = ntohl(nas->obs_point_id);
     sample->sampling_port = u16_to_ofp(ntohs(nas->sampling_port));
+    sample->apn_mac_addr = nas->apn_mac_addr;
+    memcpy(&sample->msisdn, &nas->msisdn, 16);
+    memcpy(&sample->apn_name, &nas->apn_name, 24);
     sample->direction = direction;
 
     if (sample->probability == 0) {
@@ -6242,6 +6248,9 @@ encode_SAMPLE2(const struct ofpact_sample *sample,
     nas->obs_point_id = htonl(sample->obs_point_id);
     nas->sampling_port = htons(ofp_to_u16(sample->sampling_port));
     nas->direction = sample->direction;
+    memcpy(&nas->msisdn, &sample->msisdn, 16);
+    nas->apn_mac_addr = sample->apn_mac_addr;
+    memcpy(&nas->apn_name, &sample->apn_name, 24);
 }
 
 static void
@@ -6274,8 +6283,11 @@ parse_SAMPLE(char *arg, const struct ofpact_parse_params *pp)
     struct ofpact_sample *os = ofpact_put_SAMPLE(pp->ofpacts);
     os->sampling_port = OFPP_NONE;
     os->direction = NX_ACTION_SAMPLE_DEFAULT;
+    memset(&os->msisdn, 0, 16);
+    memset(&os->apn_name, 0, 24);
 
     char *key, *value;
+    int i;
     while (ofputil_parse_key_value(&arg, &key, &value)) {
         char *error = NULL;
 
@@ -6284,6 +6296,20 @@ parse_SAMPLE(char *arg, const struct ofpact_parse_params *pp)
             if (!error && os->probability == 0) {
                 error = xasprintf("invalid probability value \"%s\"", value);
             }
+        } else if (!strcmp(key, "apn_name")) {
+            for (i = 0; i < 24; i++) {
+                os->apn_name[i] = (uint8_t)value[i];
+                if ((char)value[i] == '\0')
+                    break;
+            }
+        } else if (!strcmp(key, "msisdn")) {
+            for (i = 0; i < 16; i++) {
+                os->msisdn[i] = (uint8_t)value[i];
+                if ((char)value[i] == '\0')
+                    break;
+            }
+        } else if (!strcmp(key, "apn_mac_addr")) {
+            error = str_to_mac(value, &os->apn_mac_addr);
         } else if (!strcmp(key, "collector_set_id")) {
             error = str_to_u32(value, &os->collector_set_id);
         } else if (!strcmp(key, "obs_domain_id")) {
@@ -6321,12 +6347,18 @@ format_SAMPLE(const struct ofpact_sample *a,
     ds_put_format(fp->s, "%ssample(%s%sprobability=%s%"PRIu16
                   ",%scollector_set_id=%s%"PRIu32
                   ",%sobs_domain_id=%s%"PRIu32
-                  ",%sobs_point_id=%s%"PRIu32,
+                  ",%sobs_point_id=%s%"PRIu32
+                  ",%sapn_mac_addr=%s"ETH_ADDR_FMT
+                  ",%smsisdn=%s%s"
+                  ",%sapn_name=%s%s",
                   colors.paren, colors.end,
                   colors.param, colors.end, a->probability,
                   colors.param, colors.end, a->collector_set_id,
                   colors.param, colors.end, a->obs_domain_id,
-                  colors.param, colors.end, a->obs_point_id);
+                  colors.param, colors.end, a->obs_point_id,
+                  colors.param, colors.end, ETH_ADDR_ARGS(a->apn_mac_addr),
+                  colors.param, colors.end, a->msisdn,
+                  colors.param, colors.end, a->apn_name);
     if (a->sampling_port != OFPP_NONE) {
         ds_put_format(fp->s, ",%ssampling_port=%s", colors.param, colors.end);
         ofputil_format_port(a->sampling_port, fp->port_map, fp->s);

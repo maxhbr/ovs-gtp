@@ -1020,6 +1020,9 @@ struct ofpact_sample {
         uint32_t obs_point_id;
         ofp_port_t sampling_port;
         enum nx_action_sample_direction direction;
+        uint8_t msisdn[16];
+        struct eth_addr apn_mac_addr;
+        uint8_t apn_name[24];
     );
 };
 
