@@ -1023,6 +1023,7 @@ struct ofpact_sample {
         uint8_t msisdn[16];
         struct eth_addr apn_mac_addr;
         uint8_t apn_name[24];
+        uint64_t pdp_start_epoch;
     );
 };
 

@@ -413,8 +413,9 @@ struct ipfix_data_ipdr_fields {
     struct eth_addr apn_mac_address;  /* APN_MAC_ADDRESS */
     uint8_t apn_name[24];  /* APN_NAME */
     uint32_t app_name;  /* APP_NAME */
+    uint64_t pdp_start_epoch; /* PDP_START_EPOCH */
 });
-BUILD_ASSERT_DECL(sizeof(struct ipfix_data_ipdr_fields) == 58);
+BUILD_ASSERT_DECL(sizeof(struct ipfix_data_ipdr_fields) == 66);
 
 /* Cf. IETF RFC 5102 Section 5.11.3. */
 enum ipfix_flow_end_reason {
@@ -1500,6 +1501,7 @@ ipfix_define_template_fields(enum ipfix_proto_l2 l2, enum ipfix_proto_l3 l3,
     DEF(APN_MAC_ADDRESS);
     DEF(APN_NAME);
     DEF(APP_NAME);
+    DEF(PDP_START_EPOCH);
 
     /* 2. Virtual observation ID, which is not a part of flow key. */
     if (virtual_obs_id_set) {
@@ -2118,7 +2120,7 @@ ipfix_cache_entry_init(const struct dpif_ipfix *di,
                        enum nx_action_sample_direction direction,
                        ovs_be64 flow_metadata, uint8_t *msisdn,
                        struct eth_addr *apn_mac_addr, uint8_t *apn_name,
-                       uint32_t app_name,
+                       uint32_t app_name, uint64_t pdp_start_epoch,
                        const struct dpif_ipfix_port *tunnel_port,
                        const struct flow_tnl *tunnel_key,
                        struct dpif_ipfix_global_stats *stats,
@@ -2321,6 +2323,7 @@ ipfix_cache_entry_init(const struct dpif_ipfix *di,
     ipdr_data = dp_packet_put_zeros(&msg, sizeof *ipdr_data);
     ipdr_data->imsi = flow_metadata;
     ipdr_data->app_name = app_name;
+    ipdr_data->pdp_start_epoch = pdp_start_epoch;
     if (msisdn != NULL)
         memcpy(&ipdr_data->msisdn, msisdn, 16);
     if (apn_mac_addr != NULL)
@@ -2703,7 +2706,7 @@ dpif_ipfix_sample(const struct dpif_ipfix *di,
                   enum nx_action_sample_direction direction,
                   ovs_be64 flow_metadata, uint8_t *msisdn,
                   struct eth_addr *apn_mac_addr, uint8_t *apn_name,
-                  uint32_t app_name,
+                  uint32_t app_name, uint64_t pdp_start_epoch,
                   const struct dpif_ipfix_port *tunnel_port,
                   const struct flow_tnl *tunnel_key,
                   const struct dpif_ipfix_actions *ipfix_actions)
@@ -2721,7 +2724,7 @@ dpif_ipfix_sample(const struct dpif_ipfix *di,
                                    output_odp_port, direction,
                                    flow_metadata, msisdn,
                                    apn_mac_addr, apn_name,
-                                   app_name,
+                                   app_name, pdp_start_epoch,
                                    tunnel_port, tunnel_key,
                                    &exporter->ipfix_global_stats,
                                    ipfix_actions);
@@ -2790,7 +2793,7 @@ dpif_ipfix_bridge_sample(struct dpif_ipfix *di, const struct dp_packet *packet,
                       di->bridge_exporter.options->obs_domain_id,
                       di->bridge_exporter.options->obs_point_id,
                       output_odp_port, NX_ACTION_SAMPLE_DEFAULT,
-                      0, NULL, NULL, NULL, 0, //not available for bridge export
+                      0, NULL, NULL, NULL, 0, 0, //not available for bridge export
                       tunnel_port, tunnel_key, ipfix_actions);
     ovs_mutex_unlock(&mutex);
 }
@@ -2838,7 +2841,7 @@ dpif_ipfix_flow_sample(struct dpif_ipfix *di, const struct dp_packet *packet,
                           output_odp_port, cookie->flow_sample.direction,
                           cookie->flow_sample.flow_metadata, (uint8_t *)&cookie->flow_sample.msisdn,
                           (struct eth_addr *)&cookie->flow_sample.apn_mac_addr, (uint8_t *)&cookie->flow_sample.apn_name,
-                          cookie->flow_sample.app_name,
+                          cookie->flow_sample.app_name, cookie->flow_sample.pdp_start_epoch,
                           tunnel_port, tunnel_key, ipfix_actions);
     }
     ovs_mutex_unlock(&mutex);

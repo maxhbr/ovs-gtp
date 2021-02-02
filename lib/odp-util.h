@@ -340,6 +340,7 @@ struct user_action_cookie {
             uint8_t msisdn[16];
             struct eth_addr apn_mac_addr;
             uint8_t apn_name[24];
+            uint64_t pdp_start_epoch;
         } flow_sample;
 
         struct {
@@ -359,7 +360,7 @@ struct user_action_cookie {
         } controller;
     };
 };
-BUILD_ASSERT_DECL(sizeof(struct user_action_cookie) == 112);
+BUILD_ASSERT_DECL(sizeof(struct user_action_cookie) == 120);
 
 int odp_put_userspace_action(uint32_t pid,
                              const void *userdata, size_t userdata_size,

@@ -6159,10 +6159,11 @@ struct nx_action_sample2 {
     uint8_t  msisdn[16];
     struct   eth_addr apn_mac_addr;
     uint8_t  apn_name[24];
+    uint64_t pdp_start_epoch;
     uint8_t  direction;             /* NXAST_SAMPLE3 only. */
     uint8_t  zeros[5];              /* Pad to a multiple of 8 bytes */
  };
- OFP_ASSERT(sizeof(struct nx_action_sample2) == 80);
+ OFP_ASSERT(sizeof(struct nx_action_sample2) == 88);
 
 static enum ofperr
 decode_NXAST_RAW_SAMPLE(const struct nx_action_sample *nas,
@@ -6200,6 +6201,7 @@ decode_SAMPLE2(const struct nx_action_sample2 *nas,
     sample->obs_point_id = ntohl(nas->obs_point_id);
     sample->sampling_port = u16_to_ofp(ntohs(nas->sampling_port));
     sample->apn_mac_addr = nas->apn_mac_addr;
+    sample->pdp_start_epoch = nas->pdp_start_epoch;
     memcpy(&sample->msisdn, &nas->msisdn, 16);
     memcpy(&sample->apn_name, &nas->apn_name, 24);
     sample->direction = direction;
@@ -6251,6 +6253,7 @@ encode_SAMPLE2(const struct ofpact_sample *sample,
     memcpy(&nas->msisdn, &sample->msisdn, 16);
     nas->apn_mac_addr = sample->apn_mac_addr;
     memcpy(&nas->apn_name, &sample->apn_name, 24);
+    nas->pdp_start_epoch = sample->pdp_start_epoch;
 }
 
 static void
@@ -6313,6 +6316,8 @@ parse_SAMPLE(char *arg, const struct ofpact_parse_params *pp)
             }
         } else if (!strcmp(key, "apn_mac_addr")) {
             error = str_to_mac(value, &os->apn_mac_addr);
+        } else if (!strcmp(key, "pdp_start_epoch")) {
+            error = str_to_u64(value, &os->pdp_start_epoch);
         } else if (!strcmp(key, "collector_set_id")) {
             error = str_to_u32(value, &os->collector_set_id);
         } else if (!strcmp(key, "obs_domain_id")) {
@@ -6350,12 +6355,14 @@ format_SAMPLE(const struct ofpact_sample *a,
     ds_put_format(fp->s, "%ssample(%s%sprobability=%s%"PRIu16
                   ",%scollector_set_id=%s%"PRIu32
                   ",%sobs_domain_id=%s%"PRIu32
-                  ",%sobs_point_id=%s%"PRIu32,
+                  ",%sobs_point_id=%s%"PRIu32
+                  ",%spdp_start_epoch=%s%"PRIu64,
                   colors.paren, colors.end,
                   colors.param, colors.end, a->probability,
                   colors.param, colors.end, a->collector_set_id,
                   colors.param, colors.end, a->obs_domain_id,
-                  colors.param, colors.end, a->obs_point_id);
+                  colors.param, colors.end, a->obs_point_id,
+                  colors.param, colors.end, a->pdp_start_epoch);
     if (!eth_addr_is_zero(a->apn_mac_addr)) {
         ds_put_format(fp->s,  ",%sapn_mac_addr=%s"ETH_ADDR_FMT,
                   colors.param, colors.end, ETH_ADDR_ARGS(a->apn_mac_addr));

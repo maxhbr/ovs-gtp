@@ -5659,6 +5659,7 @@ xlate_sample_action(struct xlate_ctx *ctx,
     cookie.flow_sample.direction = os->direction;
     cookie.flow_sample.flow_metadata = ctx->xin->flow.metadata;
     cookie.flow_sample.app_name = ctx->xin->flow.regs[10];
+    cookie.flow_sample.pdp_start_epoch = os->pdp_start_epoch;
     memcpy(&cookie.flow_sample.msisdn, &os->msisdn, 16);
     memcpy(&cookie.flow_sample.apn_mac_addr, &os->apn_mac_addr, sizeof(struct eth_addr));
     memcpy(&cookie.flow_sample.apn_name, &os->apn_name, 24);
