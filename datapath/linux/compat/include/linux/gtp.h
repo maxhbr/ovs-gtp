@@ -16,4 +16,8 @@ struct gtpu_metadata {
 	__u8	flags;
 	__u8	type;
 };
+
+enum {
+        IFLA_GTP_LWT_MAX
+};
 #endif
