@@ -41,6 +41,7 @@
 #define GTP_PDP_HASHSIZE 1024
 #define GTPA_PEER_ADDRESS GTPA_SGSN_ADDRESS /* maintain legacy attr name */
 #define GTP_EXTENSION_HDR_FLAG 0x04
+#define GTP_SEQ_FLAG           0x02
 
 struct gtpu_ext_hdr {
 	__be16 seq_num;
@@ -98,9 +99,13 @@ static int gtp_rx(struct gtp_dev *gtp, struct sk_buff *skb,
 #endif
 
         int opts_len = 0;
-        if (unlikely(flags & 0x07)) {
+        if (unlikely(type != GTP_TPDU)) {
             opts_len = sizeof (struct gtpu_metadata);
-        } 
+        } else {
+            if (unlikely(flags & GTP_SEQ_FLAG)) {
+                hdrlen += 4;
+            }
+        }
 #ifndef USE_UPSTREAM_TUNNEL
         //udp_tun_rx_dst
         ovs_udp_tun_rx_dst(tun_dst, skb, gtp->sk1u->sk_family, TUNNEL_KEY, tid, opts_len);
@@ -185,7 +190,7 @@ static int gtp1u_udp_encap_recv(struct gtp_dev *gtp, struct sk_buff *skb)
 
 	gtp1 = (struct gtp1_header *)(skb->data + sizeof(struct udphdr));
 
-        netdev_dbg(gtp->dev, "flags %x\n", gtp1->flags);
+        netdev_dbg(gtp->dev, "flags %x type: %x\n", gtp1->flags, gtp1->type);
 	if ((gtp1->flags >> 5) != GTP_V1)
 		return 1;
 
