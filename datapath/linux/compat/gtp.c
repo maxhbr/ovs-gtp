@@ -440,6 +440,7 @@ static netdev_tx_t gtp_dev_xmit_fb(struct sk_buff *skb, struct net_device *dev)
         __u8 ttl;
         __u8 set_qfi = 0;
         __u8 csum;
+        int err;
 
 	/* Read the IP destination address and resolve the PDP context.
 	 * Prepend PDP header with TEI/TID from PDP ctx.
@@ -458,6 +459,12 @@ static netdev_tx_t gtp_dev_xmit_fb(struct sk_buff *skb, struct net_device *dev)
 
 	skb_dst_drop(skb);
         csum = !!(info->key.tun_flags & TUNNEL_CSUM);
+        err = udp_tunnel_handle_offloads(skb, csum);
+        if (err)
+                goto err_rt;
+        netdev_dbg(dev, "skb->protocol %d\n", skb->protocol);
+        ovs_skb_set_inner_protocol(skb, cpu_to_be16(ETH_P_IP));
+
         ttl = info->key.ttl;
         df = info->key.tun_flags & TUNNEL_DONT_FRAGMENT ? htons(IP_DF) : 0;
         netdev_dbg(dev, "packet with opt len %d", info->options_len);
@@ -484,7 +491,7 @@ static netdev_tx_t gtp_dev_xmit_fb(struct sk_buff *skb, struct net_device *dev)
 			    fl4.saddr, fl4.daddr, fl4.flowi4_tos, ttl, df,
 			    gtp->gtph_port, gtp->gtph_port,
 			    !net_eq(sock_net(gtp->sk1u), dev_net(dev)),
-                            csum);
+                            !csum);
 
 	return NETDEV_TX_OK;
 err_rt:
@@ -624,8 +631,17 @@ static void gtp_link_setup(struct net_device *dev)
 	dev->type = ARPHRD_NONE;
 	dev->flags = IFF_POINTOPOINT | IFF_NOARP | IFF_MULTICAST;
 
-	dev->priv_flags	|= IFF_NO_QUEUE;
-	dev->features	|= NETIF_F_LLTX;
+	dev->priv_flags	 |= IFF_NO_QUEUE;
+
+	dev->features    |= NETIF_F_LLTX;
+	dev->features    |= NETIF_F_SG | NETIF_F_HW_CSUM;
+	dev->features    |= NETIF_F_RXCSUM;
+	dev->features    |= NETIF_F_GSO_SOFTWARE;
+
+	dev->hw_features |= NETIF_F_SG | NETIF_F_HW_CSUM | NETIF_F_RXCSUM;
+	dev->hw_features |= NETIF_F_GSO_SOFTWARE;
+
+
 	netif_keep_dst(dev);
 
 	/* Assume largest header, ie. GTPv0. */

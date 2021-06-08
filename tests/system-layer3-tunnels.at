@@ -409,12 +409,12 @@ Tunnel port: at_gtp0
 RX: 2 TX: 2 remote ip: 172.31.1.1, seq 3, pending send 0
 ])
 dnl sleep 1000
-OVS_WAIT_UNTIL([cat p1.pcap | egrep "IP 172.31.1.100.2152 > 172.31.1.1.2152: UDP, length 12" 2>&1 1>/dev/null])
+OVS_WAIT_UNTIL([cat p1.pcap | egrep "IP 172.31.1.100.2152 > 172.31.1.1.2152: UDP, length 14" 2>&1 1>/dev/null])
 OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0000:.*0800 4500"                                     2>&1 1>/dev/null])
 OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0010:.*ac1f 0164 ac1f"       2>&1 1>/dev/null])
-OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0020:  0101 0868 0868 0014 5ac9 3202 0004 0000"       2>&1 1>/dev/null])
-OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0030:  0000 0003 0e00"                                2>&1 1>/dev/null])
-
+OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0020:  0101 0868 0868 0016 0000 3202 0006 0000"       2>&1 1>/dev/null])
+OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0030:  0000 0003 0000 0e00"                           2>&1 1>/dev/null])
+ 
 OVS_TRAFFIC_VSWITCHD_STOP
 AT_CLEANUP
 
@@ -554,7 +554,7 @@ sleep 2
 
 OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0000:.*0800 4500"                                2>&1 1>/dev/null])
 OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0010:.*ac1f 0164 ac1f"                           2>&1 1>/dev/null])
-OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0020:  0101 0868 0868 0010 5ac5 30fe 0000 0000"  2>&1 1>/dev/null])
+OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0020:  0101 0868 0868 0010 0000 30fe 0000 0000"  2>&1 1>/dev/null])
 OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0030:  0064"                                     2>&1 1>/dev/null])
 
 OVS_TRAFFIC_VSWITCHD_STOP
