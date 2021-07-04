@@ -19,7 +19,6 @@ void __skb_warn_lro_forwarding(const struct sk_buff *skb)
 
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,14,0)
 
 static inline bool head_frag(const struct sk_buff *skb)
 {
@@ -40,9 +39,11 @@ rpl_skb_zerocopy_headlen(const struct sk_buff *from)
 
 	if (!head_frag(from) ||
 	    skb_headlen(from) < L1_CACHE_BYTES ||
-	    skb_shinfo(from)->nr_frags >= MAX_SKB_FRAGS)
+	    skb_shinfo(from)->nr_frags >= MAX_SKB_FRAGS) {
 		hlen = skb_headlen(from);
-
+                if (hlen == 0)
+                        hlen = from->len;
+        }
 	if (skb_has_frag_list(from))
 		hlen = from->len;
 
@@ -50,6 +51,7 @@ rpl_skb_zerocopy_headlen(const struct sk_buff *from)
 }
 EXPORT_SYMBOL_GPL(rpl_skb_zerocopy_headlen);
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,14,0)
 #ifndef HAVE_SKB_ZEROCOPY
 /**
  *	skb_zerocopy - Zero copy skb to skb
