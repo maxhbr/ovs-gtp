@@ -503,6 +503,9 @@ tests_test_strtok_r_SOURCES = tests/test-strtok_r.c
 noinst_PROGRAMS += tests/test-type-props
 tests_test_type_props_SOURCES = tests/test-type-props.c
 
+noinst_PROGRAMS += tests/test-gtp
+tests_test_gtp_SOURCES = tests/test-gtp.c
+
 # Python tests.
 CHECK_PYFILES = \
 	tests/appctl.py \

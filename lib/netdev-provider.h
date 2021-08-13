@@ -834,6 +834,14 @@ struct netdev_class {
     /* Get a block_id from the netdev.
      * Returns the block_id or 0 if none exists for netdev. */
     uint32_t (*get_block_id)(struct netdev *);
+
+    int (*should_send_keep_alive_pkt) (struct netdev *, bool *res);
+    int (*is_keep_alive_pkt) (struct netdev *, const struct flow *flow,
+                               struct flow_wildcards *wc, bool *res);
+    int  (*process_keep_alive_pkt) (struct netdev *, const struct flow *flow,
+                               const struct dp_packet *p);
+    int (*build_keep_alive_pkt) (struct netdev *, struct dp_packet *p,
+                                struct ofpbuf *ofpacts, bool *more_pkts);
 };
 
 int netdev_register_provider(const struct netdev_class *);

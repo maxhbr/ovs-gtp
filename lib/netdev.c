@@ -2297,3 +2297,41 @@ netdev_free_custom_stats_counters(struct netdev_custom_stats *custom_stats)
         }
     }
 }
+
+int netdev_should_send_keep_alive_pkt(struct netdev *netdev, bool *res)
+{
+
+    if (netdev->netdev_class->should_send_keep_alive_pkt) {
+        return netdev->netdev_class->should_send_keep_alive_pkt(netdev, res);
+    }
+    return EOPNOTSUPP;
+}
+
+int
+netdev_is_keep_alive_pkt(struct netdev *netdev, const struct flow *flow,
+                              struct flow_wildcards *wc, bool *res)
+{
+    if (netdev->netdev_class->is_keep_alive_pkt) {
+        return netdev->netdev_class->is_keep_alive_pkt(netdev, flow, wc, res);
+    }
+    return EOPNOTSUPP;
+}
+
+int
+netdev_process_keep_alive_pkt(struct netdev *netdev, const struct flow *flow,
+                                  const struct dp_packet *p)
+{
+    if (netdev->netdev_class->process_keep_alive_pkt) {
+        return netdev->netdev_class->process_keep_alive_pkt(netdev, flow, p);
+    }
+    return EOPNOTSUPP;
+}
+
+int netdev_build_keep_alive_pkt(struct netdev *netdev, struct dp_packet *p,
+                                struct ofpbuf *ofpacts, bool *more_pkts)
+{
+    if (netdev->netdev_class->build_keep_alive_pkt) {
+        return netdev->netdev_class->build_keep_alive_pkt(netdev, p, ofpacts, more_pkts);
+    }
+    return EOPNOTSUPP;
+}

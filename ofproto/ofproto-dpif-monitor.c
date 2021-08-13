@@ -280,11 +280,17 @@ monitor_mport_run(struct mport *mport, struct dp_packet *packet)
         ofproto_dpif_send_packet(mport->ofport, false, packet);
     }
     if (mport->bfd && bfd_should_send_packet(mport->bfd)) {
-        bool oam;
+        uint64_t ofpacts_stub[4192 / 8];
+        struct ofpbuf ofpacts;
+        int err;
+
+        ofpbuf_use_stack(&ofpacts, ofpacts_stub, sizeof ofpacts_stub);
 
         dp_packet_clear(packet);
-        bfd_put_packet(mport->bfd, packet, mport->hw_addr, &oam);
-        ofproto_dpif_send_packet(mport->ofport, oam, packet);
+        err = bfd_put_packet(mport->bfd, packet, mport->hw_addr, &ofpacts);
+        if (!err) {
+            ofproto_dpif_send_packet_with_acts(mport->ofport, packet, &ofpacts);
+        }
     }
     if (mport->lldp && lldp_should_send_packet(mport->lldp)) {
         dp_packet_clear(packet);
@@ -307,6 +313,7 @@ monitor_mport_run(struct mport *mport, struct dp_packet *packet)
     next_wake_time = MIN(bfd_wake_time,
                          cfm_wake_time);
     next_wake_time = MIN(next_wake_time, lldp_wake_time);
+
     heap_change(&monitor_heap, &mport->heap_node,
                 MSEC_TO_PRIO(next_wake_time));
 }

@@ -373,6 +373,8 @@ void ofproto_dpif_send_async_msg(struct ofproto_dpif *,
                                  struct ofproto_async_msg *);
 int ofproto_dpif_send_packet(const struct ofport_dpif *, bool oam,
                              struct dp_packet *);
+int ofproto_dpif_send_packet_with_acts(const struct ofport_dpif *,
+                             struct dp_packet *, struct ofpbuf *ofpacts);
 enum ofperr ofproto_dpif_flow_mod_init_for_learn(
     struct ofproto_dpif *, const struct ofputil_flow_mod *,
     struct ofproto_flow_mod *);

@@ -93,6 +93,23 @@ struct ovs_key_nsh {
 
 #define FLOW_NSH_F_MASK ((1 << 2) - 1)
 
+/* GTP protocol stuff used by userspace. */
+struct gtp1_cntr_echo_req_header {
+    ovs_be16	    seq;
+    // we do not need rest of header.
+} __attribute__ ((packed));
+
+struct gtpv1_tlv {
+    uint8_t type;
+    uint8_t value;
+}__attribute__ ((packed));
+
+struct gtp1_cntr_echo_rsp_header {
+    ovs_be16	        seq;
+    struct gtpv1_tlv    unused;
+    struct gtpv1_tlv    recovery;
+} __attribute__ ((packed));
+
 #ifdef __cplusplus
 }
 #endif

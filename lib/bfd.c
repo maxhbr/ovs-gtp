@@ -15,6 +15,7 @@
 #include <config.h>
 #include "bfd.h"
 
+#include <errno.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -358,7 +359,7 @@ bfd_configure(struct bfd *bfd, const char *name, const struct smap *cfg,
     int decay_min_rx;
     long long int min_tx, min_rx;
     bool need_poll = false;
-    bool cfg_min_rx_changed = false;
+    bool cfg_min_rx_changed = false, dummy1=false;
     bool cpath_down, forwarding_if_rx;
 
     if (!cfg || !smap_get_bool(cfg, "enable", false)) {
@@ -477,6 +478,9 @@ bfd_configure(struct bfd *bfd, const char *name, const struct smap *cfg,
         bfd_forwarding_if_rx_update(bfd);
     }
 
+    if (netdev_should_send_keep_alive_pkt(bfd->netdev, &dummy1) != EOPNOTSUPP) {
+        need_poll = true;
+    }
     if (need_poll) {
         bfd_poll(bfd);
     }
@@ -521,6 +525,7 @@ long long int
 bfd_wake_time(const struct bfd *bfd) OVS_EXCLUDED(mutex)
 {
     long long int retval;
+    bool ret;
 
     if (!bfd) {
         return LLONG_MAX;
@@ -530,9 +535,14 @@ bfd_wake_time(const struct bfd *bfd) OVS_EXCLUDED(mutex)
     if (bfd->flags & FLAG_FINAL) {
         retval = 0;
     } else {
-        retval = bfd->next_tx;
-        if (bfd->state > STATE_DOWN) {
-            retval = MIN(bfd->detect_time, retval);
+        if (netdev_should_send_keep_alive_pkt(bfd->netdev, &ret) != EOPNOTSUPP) {
+            // do not change time interval for keep alive
+            retval =  time_msec() + bfd_tx_interval(bfd);
+        } else {
+            retval = bfd->next_tx;
+            if (bfd->state > STATE_DOWN) {
+                retval = MIN(bfd->detect_time, retval);
+            }
         }
     }
     ovs_mutex_unlock(&mutex);
@@ -546,6 +556,11 @@ bfd_run(struct bfd *bfd) OVS_EXCLUDED(mutex)
     bool old_in_decay;
 
     ovs_mutex_lock(&mutex);
+    bool ret;
+    if (netdev_should_send_keep_alive_pkt(bfd->netdev, &ret) != EOPNOTSUPP) {
+        goto unlock;
+    }
+ 
     now = time_msec();
     old_in_decay = bfd->in_decay;
 
@@ -566,6 +581,7 @@ bfd_run(struct bfd *bfd) OVS_EXCLUDED(mutex)
         || bfd->in_decay != old_in_decay) {
         bfd_poll(bfd);
     }
+unlock:
     ovs_mutex_unlock(&mutex);
 }
 
@@ -574,20 +590,26 @@ bfd_should_send_packet(const struct bfd *bfd) OVS_EXCLUDED(mutex)
 {
     bool ret;
     ovs_mutex_lock(&mutex);
-    ret = bfd->flags & FLAG_FINAL || time_msec() >= bfd->next_tx;
+    if (netdev_should_send_keep_alive_pkt(bfd->netdev, &ret) != EOPNOTSUPP) {
+        ret = (bfd->flags & FLAG_FINAL) || ret;
+    } else {
+        ret = bfd->flags & FLAG_FINAL || time_msec() >= bfd->next_tx;
+    }
     ovs_mutex_unlock(&mutex);
     return ret;
 }
 
-void
+int
 bfd_put_packet(struct bfd *bfd, struct dp_packet *p,
-               const struct eth_addr eth_src, bool *oam) OVS_EXCLUDED(mutex)
+               const struct eth_addr eth_src, struct ofpbuf *ofpacts) OVS_EXCLUDED(mutex)
 {
     long long int min_tx, min_rx;
     struct udp_header *udp;
     struct eth_header *eth;
     struct ip_header *ip;
     struct msg *msg;
+    bool more_pkts = false;
+    int ret;
 
     ovs_mutex_lock(&mutex);
     if (bfd->next_tx) {
@@ -612,6 +634,25 @@ bfd_put_packet(struct bfd *bfd, struct dp_packet *p,
         ? eth_addr_bfd : bfd->local_eth_dst;
     eth->eth_type = htons(ETH_TYPE_IP);
 
+    ret = netdev_build_keep_alive_pkt(bfd->netdev, p, ofpacts, &more_pkts);
+    VLOG_DBG("%s ret %d more_pkts %d\n",__func__, (int)ret, (int) more_pkts);
+    if (ret != EOPNOTSUPP) {
+        if (ret == 0) {
+                if (more_pkts == false) {
+                    bfd->flags &= ~FLAG_FINAL;
+                }
+                VLOG_DBG("%s: Sending GTP echo packet", bfd->name);
+                goto send_pkt;
+        }
+        // error
+        if (ret == ENOENT) {
+            bfd->flags &= ~FLAG_FINAL;
+        }
+        VLOG_DBG("%s could not build keep alive packet: %d \n",__func__, ret);
+        goto unlock;
+    }
+
+    ret = 0;
     ip = dp_packet_put_zeros(p, sizeof *ip);
     ip->ip_ihl_ver = IP_IHL_VER(5, 4);
     ip->ip_tot_len = htons(sizeof *ip + sizeof *udp + sizeof *msg);
@@ -650,13 +691,20 @@ bfd_put_packet(struct bfd *bfd, struct dp_packet *p,
     msg->min_rx = htonl(min_rx * 1000);
 
     bfd->flags &= ~FLAG_FINAL;
-    *oam = bfd->oam;
-
+    if (bfd->oam) {
+        const ovs_be16 flag = htons(NX_TUN_FLAG_OAM);
+        ofpact_put_set_field(ofpacts, mf_from_id(MFF_TUN_FLAGS),
+                              &flag, &flag);
+    }
     log_msg(VLL_DBG, msg, "Sending BFD Message", bfd);
+
+send_pkt:
 
     bfd->last_tx = time_msec();
     bfd_set_next_tx(bfd);
+unlock:
     ovs_mutex_unlock(&mutex);
+    return ret;
 }
 
 bool
@@ -664,6 +712,14 @@ bfd_should_process_flow(const struct bfd *bfd_, const struct flow *flow,
                         struct flow_wildcards *wc)
 {
     struct bfd *bfd = CONST_CAST(struct bfd *, bfd_);
+    bool res;
+
+    if (!netdev_is_keep_alive_pkt(bfd->netdev, flow, wc, &res)) {
+        if (res) {
+            bfd->flags |= FLAG_FINAL;
+        }
+        return res;
+    }
 
     if (!eth_addr_is_zero(bfd->rmt_eth_dst)) {
         memset(&wc->masks.dl_dst, 0xff, sizeof wc->masks.dl_dst);
@@ -708,15 +764,21 @@ bfd_process_packet(struct bfd *bfd, const struct flow *flow,
     enum flags flags;
     uint8_t version;
     struct msg *msg;
-    const uint8_t *l7 = dp_packet_get_udp_payload(p);
+    const uint8_t *l7;
 
+    ovs_mutex_lock(&mutex);
+    if (netdev_process_keep_alive_pkt(bfd->netdev, flow, p) == 0) {
+        VLOG_DBG_RL(&rl, "%s: Received GTP echo packet", bfd->name);
+        goto unlock;
+    }
+
+    l7 = dp_packet_get_udp_payload(p);
     if (!l7) {
-        return; /* No UDP payload. */
+        goto unlock;     /* No UDP payload. */
     }
 
     /* This function is designed to follow section RFC 5880 6.8.6 closely. */
 
-    ovs_mutex_lock(&mutex);
     /* Increments the decay rx counter. */
     bfd->decay_rx_ctl++;
 
@@ -726,7 +788,6 @@ bfd_process_packet(struct bfd *bfd, const struct flow *flow,
         /* XXX Should drop in the kernel to prevent DOS. */
         goto out;
     }
-
     msg = dp_packet_at(p, l7 - (uint8_t *)dp_packet_data(p), BFD_PACKET_LEN);
     if (!msg) {
         VLOG_INFO_RL(&rl, "%s: Received too-short BFD control message (only "
@@ -888,6 +949,7 @@ bfd_process_packet(struct bfd *bfd, const struct flow *flow,
 
 out:
     bfd_forwarding__(bfd);
+unlock:
     ovs_mutex_unlock(&mutex);
 }
 
@@ -966,6 +1028,16 @@ bfd_in_poll(const struct bfd *bfd) OVS_REQUIRES(mutex)
 static void
 bfd_poll(struct bfd *bfd) OVS_REQUIRES(mutex)
 {
+    bool ret;
+    if (netdev_should_send_keep_alive_pkt(bfd->netdev, &ret) != EOPNOTSUPP) {
+        bfd_set_state(bfd, STATE_UP, DIAG_RMT_DOWN);
+        bfd->forwarding_override = 1;
+        bfd->rmt_state = STATE_UP;
+        bfd->poll_min_tx = bfd->cfg_min_tx;
+        bfd->min_tx = bfd->cfg_min_tx;
+        VLOG_DBG_RL(&rl, "%s: No Poll. Set State UP", bfd->name);
+        return;
+    }
     if (bfd->state > STATE_DOWN && !bfd_in_poll(bfd)
         && !(bfd->flags & FLAG_FINAL)) {
         bfd->poll_min_tx = bfd->cfg_min_tx;

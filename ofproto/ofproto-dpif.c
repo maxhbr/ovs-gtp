@@ -5285,6 +5285,23 @@ ofproto_dpif_send_packet(const struct ofport_dpif *ofport, bool oam,
     ovs_mutex_unlock(&ofproto->stats_mutex);
     return error;
 }
+
+int
+ofproto_dpif_send_packet_with_acts(const struct ofport_dpif *ofport, 
+                                   struct dp_packet *packet, struct ofpbuf *ofpacts)
+{
+    struct ofproto_dpif *ofproto = ofproto_dpif_cast(ofport->up.ofproto);
+    int error;
+
+    error = xlate_send_packet_with_acts(ofport, packet, ofpacts);
+
+    ovs_mutex_lock(&ofproto->stats_mutex);
+    ofproto->stats.tx_packets++;
+    ofproto->stats.tx_bytes += dp_packet_size(packet);
+    ovs_mutex_unlock(&ofproto->stats_mutex);
+    return error;
+}
+
 
 /* Return the version string of the datapath that backs up
  * this 'ofproto'.

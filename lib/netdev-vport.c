@@ -29,6 +29,7 @@
 #include <sys/ioctl.h>
 
 #include "byte-order.h"
+#include "csum.h"
 #include "daemon.h"
 #include "dirs.h"
 #include "dpif.h"
@@ -36,6 +37,7 @@
 #include "netdev-native-tnl.h"
 #include "netdev-provider.h"
 #include "netdev-vport-private.h"
+#include "odp-util.h"
 #include "openvswitch/dynamic-string.h"
 #include "ovs-router.h"
 #include "packets.h"
@@ -578,7 +580,8 @@ set_tunnel_config(struct netdev *dev_, const struct smap *args, char **errp)
     int err;
 
     has_csum = strstr(type, "gre") || strstr(type, "geneve") ||
-               strstr(type, "stt") || strstr(type, "vxlan");
+               strstr(type, "stt") || strstr(type, "vxlan") ||
+               strstr(type, "gtpu");
     has_seq = strstr(type, "gre");
     memset(&tnl_cfg, 0, sizeof tnl_cfg);
 
@@ -1152,6 +1155,171 @@ netdev_vport_get_pt_mode(const struct netdev *netdev)
 
 
 #ifdef __linux__
+
+static void
+gtp_get_remote_info(struct netdev_vport *dev, struct ds *ds)
+{
+    struct netdev_tunnel_config *cfg = &dev->tnl_cfg;
+    if (cfg && cfg->gtp_timestamp) {
+        ds_put_format(ds, "\t%s: RX: %ld TX: %ld remote ip: "IP_FMT", seq %d, pending send %d\n",
+                      xastrftime_msec("%H:%M:%S.###", cfg->gtp_timestamp, true), cfg->gtp_rx_cnt, cfg->gtp_tx_cnt,
+                      IP_ARGS(in6_addr_get_mapped_ipv4(&cfg->ipv6_dst)), cfg->gtp_seq, (int)cfg->gtp_need_to_send);
+    }
+}
+
+/* This function is for packet TX.
+ * currently we do not support sending keep alive packets. */
+static int gtp_should_send_keep_alive_pkt(struct netdev *netdev OVS_UNUSED, bool *res)
+{
+    *res = false;
+    return 0;
+}
+
+static int
+gtp_is_keep_alive_pkt(struct netdev *netdev, const struct flow *flow,
+                      struct flow_wildcards *wc, bool *res)
+{
+    struct netdev_vport *dev = netdev_vport_cast(netdev);
+
+    VLOG_DBG("gtpu flags %x msg_type %d dev->tnl_cfg.dst_port %d == (%d, %d) flow "IP_FMT" cfg "IP_FMT,
+            flow->tunnel.gtpu_flags, flow->tunnel.gtpu_msgtype, dev->tnl_cfg.dst_port,
+            flow->tunnel.tp_src, flow->tunnel.tp_dst,
+            IP_ARGS(flow->tunnel.ip_src), IP_ARGS(in6_addr_get_mapped_ipv4(&dev->tnl_cfg.ipv6_dst)));
+
+    if ((flow->tunnel.tp_dst == dev->tnl_cfg.dst_port) &&
+        (flow->tunnel.ip_src == in6_addr_get_mapped_ipv4(&dev->tnl_cfg.ipv6_dst))) {
+        *res = (flow->tunnel.gtpu_msgtype == 1) &&                  // echo request msg type
+               (flow->tunnel.gtpu_flags == 0x32);                   // needs seq in packet.
+
+        if (flow->tunnel.gtpu_msgtype && wc) {
+            memset(&wc->masks.tunnel.gtpu_msgtype, 0xff, sizeof wc->masks.tunnel.gtpu_msgtype);
+            memset(&wc->masks.tunnel.gtpu_flags, 0xff, sizeof wc->masks.tunnel.gtpu_flags);
+        }
+   }
+    return 0;
+}
+
+static int
+gtp_process_keep_alive_pkt(struct netdev *netdev, const struct flow *flow,
+                           const struct dp_packet *p)
+{
+    struct netdev_vport *dev = netdev_vport_cast(netdev);
+    struct netdev_tunnel_config *cfg = &dev->tnl_cfg;
+    bool is_keep_alive;
+
+    ovs_mutex_lock(&dev->mutex);
+    gtp_is_keep_alive_pkt(netdev, flow, NULL, &is_keep_alive);
+
+    VLOG_DBG("is_keep_alive %d",(int) is_keep_alive);
+    if (is_keep_alive) {
+        struct gtp1_cntr_echo_req_header *hdr;
+
+        if (dp_packet_size(p) >= sizeof(struct gtp1_cntr_echo_req_header) &&
+            dp_packet_data(p) != NULL &&
+            flow->tunnel.gtpu_flags & GTP_FLAGS_SEQ) {
+            hdr = dp_packet_data(p);
+            cfg->gtp_seq = ntohs(hdr->seq);
+            VLOG_DBG("got seq %d", cfg->gtp_seq);
+        } else {
+            cfg->gtp_seq++;
+        }
+        cfg->gtp_timestamp = time_wall_msec();
+        cfg->gtp_need_to_send = true;
+        cfg->gtp_rx_cnt++;
+    }
+    ovs_mutex_unlock(&dev->mutex);
+
+    return 0;
+}
+
+static int
+gtp_build_keep_alive_pkt(struct netdev *netdev, struct dp_packet *p,
+                         struct ofpbuf *ofpacts, bool *more_pkts)
+{
+    struct netdev_vport *dev = netdev_vport_cast(netdev);
+    struct netdev_tunnel_config *cfg;
+    struct gtp1_cntr_echo_rsp_header *hdr;
+    ovs_be32 ip_src_flow, ip_dst_flow;
+    __u8 ttl;
+    __u8 tos;
+    __u8 gtpu_msgtype;
+    __u8 gtpu_flags;
+
+    ovs_mutex_lock(&dev->mutex);
+    cfg = &dev->tnl_cfg;
+    if (!cfg->gtp_need_to_send) {
+        ovs_mutex_unlock(&dev->mutex);
+        return ENOENT;
+    }
+    *more_pkts = false;
+
+    ip_src_flow = in6_addr_get_mapped_ipv4(&cfg->ipv6_src);
+    ip_dst_flow = in6_addr_get_mapped_ipv4(&cfg->ipv6_dst);
+
+
+    ttl = MAXTTL;
+    tos = IPTOS_PREC_INTERNETCONTROL;
+    gtpu_msgtype = 2;
+    gtpu_flags = 0x32;
+
+    ofpact_put_set_field(ofpacts, mf_from_id(MFF_TUN_SRC), &ip_src_flow, &ip_src_flow);
+    ofpact_put_set_field(ofpacts, mf_from_id(MFF_TUN_DST), &ip_dst_flow, &ip_dst_flow);
+    ofpact_put_set_field(ofpacts, mf_from_id(MFF_TUN_TOS), &tos, &tos);
+    ofpact_put_set_field(ofpacts, mf_from_id(MFF_TUN_TTL), &ttl, &ttl);
+    ofpact_put_set_field(ofpacts, mf_from_id(MFF_TUN_GTPU_FLAGS), &gtpu_flags, &gtpu_flags);
+    ofpact_put_set_field(ofpacts, mf_from_id(MFF_TUN_GTPU_MSGTYPE), &gtpu_msgtype, &gtpu_msgtype);
+
+    __be16 csum = htons(FLOW_TNL_F_CSUM);
+    ofpact_put_set_field(ofpacts, mf_from_id(MFF_TUN_FLAGS), &csum, &csum);
+   
+    hdr = dp_packet_put_zeros(p, sizeof *hdr);
+    hdr->seq = htons(cfg->gtp_seq);
+    hdr->recovery.type = 14;  //htons(0x0E00); // this is added for backward compatibility only.
+    hdr->recovery.value = 0;
+    cfg->gtp_tx_cnt++;
+    cfg->gtp_need_to_send = false;
+    VLOG_DBG("gtp-echo xmit flags %x msg_type %d dev->tnl_cfg.dst_port %d src "IP_FMT" dst "IP_FMT,
+            gtpu_flags, gtpu_msgtype, dev->tnl_cfg.dst_port, IP_ARGS(ip_src_flow), IP_ARGS(ip_dst_flow));
+
+    ovs_mutex_unlock(&dev->mutex);
+    return 0;
+}
+
+static void
+netdev_gtp_echo_remote_end_points(struct unixctl_conn *conn, int argc OVS_UNUSED,
+                             const char *argv[] OVS_UNUSED, void *aux OVS_UNUSED)
+{
+    struct ds ds = DS_EMPTY_INITIALIZER;
+    struct netdev **vports;
+    size_t i, n_vports;
+
+    int rec = 0;
+
+    vports = netdev_get_vports(&n_vports);
+    for (i = 0; i < n_vports; i++) {
+        struct netdev *netdev_ = vports[i];
+        struct netdev_vport *netdev = netdev_vport_cast(netdev_);
+
+        ds_put_format(&ds, "Tunnel port: %s\n", netdev_->name);
+        ovs_mutex_lock(&netdev->mutex);
+        /* Finds all tunnel vports. */
+        gtp_get_remote_info(netdev, &ds);
+
+        ovs_mutex_unlock(&netdev->mutex);
+
+        netdev_close(netdev_);
+        rec++;
+    }
+    free(vports);
+    if (rec) {
+        unixctl_command_reply(conn, ds_cstr(&ds));
+    } else {
+        unixctl_command_reply(conn, "None");
+    }
+    ds_destroy(&ds);
+}
+
+
 static int
 netdev_vport_get_ifindex(const struct netdev *netdev_)
 {
@@ -1277,6 +1445,11 @@ netdev_vport_tunnel_register(void)
               .build_header = netdev_gtpu_build_header,
               .push_header = netdev_gtpu_push_header,
               .pop_header = netdev_gtpu_pop_header,
+              .should_send_keep_alive_pkt = gtp_should_send_keep_alive_pkt,
+              .is_keep_alive_pkt = gtp_is_keep_alive_pkt,
+              .process_keep_alive_pkt = gtp_process_keep_alive_pkt,
+              .build_keep_alive_pkt = gtp_build_keep_alive_pkt,
+              .get_ifindex = NETDEV_VPORT_GET_IFINDEX,
           },
           {{NULL, NULL, 0, 0}}
         },
@@ -1302,6 +1475,9 @@ netdev_vport_tunnel_register(void)
 
         unixctl_command_register("tnl/egress_port_range", "min max", 0, 2,
                                  netdev_tnl_egress_port_range, NULL);
+
+        unixctl_command_register("tnl/gtp_echo_remote_end_points", "", 0, 0,
+                                 netdev_gtp_echo_remote_end_points, NULL);
 
         ovsthread_once_done(&once);
     }

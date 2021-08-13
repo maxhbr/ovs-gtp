@@ -221,6 +221,8 @@ enum ofperr xlate_resume(struct ofproto_dpif *,
                          struct ofpbuf *odp_actions, enum slow_path_reason *,
                          struct flow *, struct xlate_cache *);
 int xlate_send_packet(const struct ofport_dpif *, bool oam, struct dp_packet *);
+int xlate_send_packet_with_acts(const struct ofport_dpif *ofport,
+                  struct dp_packet *packet, struct ofpbuf *ofpacts);
 
 void xlate_mac_learning_update(const struct ofproto_dpif *ofproto,
                                ofp_port_t in_port, struct eth_addr dl_src,
