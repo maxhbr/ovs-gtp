@@ -101,10 +101,6 @@ static int gtp_rx(struct gtp_dev *gtp, struct sk_buff *skb,
         int opts_len = 0;
         if (unlikely(type != GTP_TPDU)) {
             opts_len = sizeof (struct gtpu_metadata);
-        } else {
-            if (unlikely(flags & GTP_SEQ_FLAG)) {
-                hdrlen += 4;
-            }
         }
 #ifndef USE_UPSTREAM_TUNNEL
         //udp_tun_rx_dst
@@ -200,29 +196,33 @@ static int gtp1u_udp_encap_recv(struct gtp_dev *gtp, struct sk_buff *skb)
 	 * If any of the bit is set, then the remaining ones also have to be
 	 * set.
 	 */
-	if ((gtp1->type == GTP_TPDU) && (gtp1->flags & GTP_EXTENSION_HDR_FLAG)) {
-		struct gtpu_ext_hdr *geh;
-		u8 next_hdr;
+        if (gtp1->type == GTP_TPDU) {
+            if (gtp1->flags & GTP_EXTENSION_HDR_FLAG) {
+                struct gtpu_ext_hdr *geh;
+                u8 next_hdr;
 
-		geh = (struct gtpu_ext_hdr *) (gtp1 + 1);
-		netdev_dbg(gtp->dev, "ext type type %d\n", geh->type);
+                geh = (struct gtpu_ext_hdr *) (gtp1 + 1);
+                netdev_dbg(gtp->dev, "ext type type %d\n", geh->type);
 
-		hdrlen += sizeof (struct gtpu_ext_hdr);
-		next_hdr = geh->type;
-		while (next_hdr) {
-			u8 len = *(u8 *) (skb->data + hdrlen);
+                hdrlen += sizeof (struct gtpu_ext_hdr);
+                next_hdr = geh->type;
+                while (next_hdr) {
+                    u8 len = *(u8 *) (skb->data + hdrlen);
 
-			hdrlen += (len * 4);
-			if (!pskb_may_pull(skb, hdrlen)) {
-				netdev_dbg(gtp->dev, "malformed packet %d", hdrlen);
-				return -1;
-			}
-			next_hdr = *(u8*) (skb->data + hdrlen - 1);
-			netdev_dbg(gtp->dev, "current hdr len %d next hdr type: %d\n", len, next_hdr);
-		}
-		netdev_dbg(gtp->dev, "pkt type: %x", *(u8*) (skb->data + hdrlen));
-		netdev_dbg(gtp->dev, "skb-len %d gtp len %d hdr len %d\n", skb->len, (int) ntohs(gtp1->length), hdrlen);
-	}
+                    hdrlen += (len * 4);
+                    if (!pskb_may_pull(skb, hdrlen)) {
+                        netdev_dbg(gtp->dev, "malformed packet %d", hdrlen);
+                        return -1;
+                    }
+                    next_hdr = *(u8*) (skb->data + hdrlen - 1);
+                    netdev_dbg(gtp->dev, "current hdr len %d next hdr type: %d\n", len, next_hdr);
+                }
+                netdev_dbg(gtp->dev, "pkt type: %x", *(u8*) (skb->data + hdrlen));
+                netdev_dbg(gtp->dev, "skb-len %d gtp len %d hdr len %d\n", skb->len, (int) ntohs(gtp1->length), hdrlen);
+            } else if (gtp1->flags & GTP1_F_MASK)
+                hdrlen += 4;
+        }
+
 	/* Make sure the header is larger enough, including extensions. */
 	if (!pskb_may_pull(skb, hdrlen))
 		return -1;
