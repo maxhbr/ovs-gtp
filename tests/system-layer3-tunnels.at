@@ -247,6 +247,7 @@ NS_CHECK_EXEC([at_ns0], [ping -q -c 3 -i 0.3 -w 2 10.1.1.2 | FORMAT_PING], [0], 
 NS_CHECK_EXEC([at_ns1], [ping -q -c 3 -i 0.3 -w 2 10.1.1.1 | FORMAT_PING], [0], [dnl
 3 packets transmitted, 3 received, 0% packet loss, time 0ms
 ])
+
 OVS_TRAFFIC_VSWITCHD_STOP
 AT_CLEANUP
 
@@ -313,7 +314,215 @@ NS_CHECK_EXEC([at_ns0], [ping -s 3200 -q -c 3 -i 0.3 -w 2 10.1.1.2 | FORMAT_PING
 3 packets transmitted, 3 received, 0% packet loss, time 0ms
 ])
 
-dnl sleep 1000 
+dnl sleep 10000
+OVS_TRAFFIC_VSWITCHD_STOP
+AT_CLEANUP
+
+AT_SETUP([layer3 - IPv6 packets over IPv6 GTP])
+OVS_TRAFFIC_VSWITCHD_START([set Bridge br0 other-config:hwaddr="00:12:34:56:78:bb"])
+OVS_CHECK_GTP_L3()
+OVS_CHECK_MIN_KERNEL(4,10)
+
+ADD_BR([br-underlay])
+
+ADD_NAMESPACES(at_ns0)
+
+dnl Set up underlay link from host into the namespace using veth pair.
+ADD_VETH(p0, at_ns0, br-underlay, "fc00::55:0:111/48")
+AT_CHECK([ip -6 addr add dev br-underlay "fc00::55:0:211/48"])
+AT_CHECK([ip -6 link set dev br-underlay up])
+
+AT_CHECK([modprobe vport_gtp])
+
+dnl Set up tunnel endpoints on OVS outside the namespace and with a native
+dnl linux device inside the namespace.
+
+ADD_OVS_TUNNEL([gtpu], [br0], [at_gtp0], [fc00::55:0:111], [2001::2/64])
+AT_CHECK([ip -6 neigh add 2001::1 lladdr 00:12:34:56:78:aa dev br0])
+
+NS_CHECK_EXEC([at_ns0], [ip link set dev lo up])
+NS_CHECK_EXEC([at_ns0], [ip -6 addr add dev lo 2005:cafe::92/64])
+
+AT_CHECK([ovs-ofctl add-flow br-underlay "actions=normal"])
+
+AT_CHECK([ovs-appctl vlog/set dbg], [0], [ignore])
+AT_CHECK([echo 'module openvswitch +p' > /sys/kernel/debug/dynamic_debug/control])
+
+dnl Now add rules for OVS to forward to the tunnel and local port
+AT_CHECK([ovs-ofctl add-flow br0 "priority=1 action=drop"])
+AT_CHECK([ovs-ofctl add-flow br0 "priority=100 ip6,ipv6_dst=2001::1 action=output:at_gtp0"])
+AT_CHECK([ovs-ofctl add-flow br0 "priority=100 ip6,ipv6_dst=2001::2 action=drop"])
+
+AT_CHECK([ovs-ofctl dump-flows br0 | grep "ipv6" | ofctl_strip], [0], [dnl
+ priority=100,ipv6,ipv6_dst=2001::1 actions=output:1
+ priority=100,ipv6,ipv6_dst=2001::2 actions=drop
+])
+
+sleep 1
+NS_CHECK_EXEC([at_ns0], [python3 $srcdir/gtp-packet.py fc00::55:0:111 fc00::55:0:211 2001::1 2001::2 5555 p0 False 1234 2>/dev/null], [0], [dnl
+.
+Sent 1 packets.
+])
+
+AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | grep ipv6 ], [0], [dnl
+ priority=100,ipv6,ipv6_dst=2001::1 actions=output:1
+ n_packets=1, n_bytes=63, priority=100,ipv6,ipv6_dst=2001::2 actions=drop
+])
+
+NS_CHECK_EXEC([at_ns0], [tcpdump -l -n -xx -U ip6 host fc00::55:0:111 -i p0 > ipv6_xmit.pcap  2>/dev/null &])
+
+sleep 1
+AT_CHECK([ping -6 2001::1 -q -c 3 -I br0 2>/dev/null | FORMAT_PING], [0], [dnl
+3 packets transmitted, 0 received, 100% packet loss, time 0ms
+])
+
+OVS_WAIT_UNTIL([cat ipv6_xmit.pcap | egrep "IP6 fc00::55:0:211.2152 > fc00::55:0:111.2152: UDP, length 112" 2>&1 1>/dev/null])
+
+AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | grep ipv6 ], [0], [dnl
+ n_packets=3, n_bytes=354, priority=100,ipv6,ipv6_dst=2001::1 actions=output:1
+ n_packets=1, n_bytes=63, priority=100,ipv6,ipv6_dst=2001::2 actions=drop
+])
+
+dnl sleep 1000
+OVS_TRAFFIC_VSWITCHD_STOP
+AT_CLEANUP
+
+AT_SETUP([layer3 - IPv6 packets over IPv4 GTP])
+OVS_TRAFFIC_VSWITCHD_START([set Bridge br0 other-config:hwaddr="00:12:34:56:78:bb"])
+OVS_CHECK_GTP_L3()
+OVS_CHECK_MIN_KERNEL(4,10)
+
+ADD_BR([br-underlay])
+
+ADD_NAMESPACES(at_ns0)
+
+dnl Set up underlay link from host into the namespace using veth pair.
+ADD_VETH(p0, at_ns0, br-underlay, "172.31.1.1/24")
+AT_CHECK([ip addr add dev br-underlay "172.31.1.100/24"])
+AT_CHECK([ip link set dev br-underlay up])
+
+AT_CHECK([modprobe vport_gtp])
+
+dnl Set up tunnel endpoints on OVS outside the namespace and with a native
+dnl linux device inside the namespace.
+
+ADD_OVS_TUNNEL([gtpu], [br0], [at_gtp0], [172.31.1.1], [2001::2/64])
+AT_CHECK([ip -6 neigh add 2001::1 lladdr 00:12:34:56:78:aa dev br0])
+
+NS_CHECK_EXEC([at_ns0], [ip link set dev lo up])
+NS_CHECK_EXEC([at_ns0], [ip -6 addr add dev lo 2005:cafe::92/64])
+
+AT_CHECK([ovs-ofctl add-flow br-underlay "actions=normal"])
+
+AT_CHECK([ovs-appctl vlog/set dbg], [0], [ignore])
+AT_CHECK([echo 'module openvswitch +p' > /sys/kernel/debug/dynamic_debug/control])
+
+dnl Now add rules for OVS to forward to the tunnel and local port
+AT_CHECK([ovs-ofctl add-flow br0 "priority=1 action=drop"])
+AT_CHECK([ovs-ofctl add-flow br0 "priority=100 ip6,ipv6_dst=2001::1 action=output:at_gtp0"])
+AT_CHECK([ovs-ofctl add-flow br0 "priority=100 ip6,ipv6_dst=2001::2 action=drop"])
+
+AT_CHECK([ovs-ofctl dump-flows br0 | grep "ipv6" | ofctl_strip], [0], [dnl
+ priority=100,ipv6,ipv6_dst=2001::1 actions=output:1
+ priority=100,ipv6,ipv6_dst=2001::2 actions=drop
+])
+
+sleep 1
+NS_CHECK_EXEC([at_ns0], [python3 $srcdir/gtp-packet.py 172.31.1.1 172.31.1.100 2001::1 2001::2 5555 p0 False 1234 2>/dev/null], [0], [dnl
+.
+Sent 1 packets.
+])
+
+AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | grep ipv6 ], [0], [dnl
+ priority=100,ipv6,ipv6_dst=2001::1 actions=output:1
+ n_packets=1, n_bytes=63, priority=100,ipv6,ipv6_dst=2001::2 actions=drop
+])
+
+NS_CHECK_EXEC([at_ns0], [tcpdump -l -n -xx -U ip host 172.31.1.1 -i p0 > ipv6_xmit.pcap  2>/dev/null &])
+
+sleep 1
+AT_CHECK([ping -6 2001::1 -q -c 3 -I br0 2>/dev/null | FORMAT_PING], [0], [dnl
+3 packets transmitted, 0 received, 100% packet loss, time 0ms
+])
+
+OVS_WAIT_UNTIL([cat ipv6_xmit.pcap | egrep "IP 172.31.1.100.2152 > 172.31.1.1.2152: UDP, length 112" 2>&1 1>/dev/null])
+
+AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | grep ipv6 ], [0], [dnl
+ n_packets=3, n_bytes=354, priority=100,ipv6,ipv6_dst=2001::1 actions=output:1
+ n_packets=1, n_bytes=63, priority=100,ipv6,ipv6_dst=2001::2 actions=drop
+])
+
+dnl sleep 1000
+OVS_TRAFFIC_VSWITCHD_STOP
+AT_CLEANUP
+
+
+AT_SETUP([layer3 - IPv4 packets over IPv6 GTP])
+OVS_TRAFFIC_VSWITCHD_START([set Bridge br0 other-config:hwaddr="00:12:34:56:78:bb"])
+OVS_CHECK_GTP_L3()
+OVS_CHECK_MIN_KERNEL(4,10)
+
+ADD_BR([br-underlay])
+
+ADD_NAMESPACES(at_ns0)
+
+dnl Set up underlay link from host into the namespace using veth pair.
+ADD_VETH(p0, at_ns0, br-underlay, "fc00::55:0:111/48")
+AT_CHECK([ip -6 addr add dev br-underlay "fc00::55:0:211/48"])
+AT_CHECK([ip -6 link set dev br-underlay up])
+
+AT_CHECK([modprobe vport_gtp])
+
+dnl Set up tunnel endpoints on OVS outside the namespace and with a native
+dnl linux device inside the namespace.
+
+ADD_OVS_TUNNEL([gtpu], [br0], [at_gtp0], [fc00::55:0:111], [10.1.1.2/24])
+AT_CHECK([ip neigh add 10.1.1.1 lladdr 00:12:34:56:78:aa dev br0])
+
+dnl NS_CHECK_EXEC([at_ns0], [ip link set dev lo up])
+dnl NS_CHECK_EXEC([at_ns0], [ip -6 addr add dev lo 2005:cafe::92/64])
+
+AT_CHECK([ovs-ofctl add-flow br-underlay "actions=normal"])
+
+AT_CHECK([ovs-appctl vlog/set dbg], [0], [ignore])
+AT_CHECK([echo 'module openvswitch +p' > /sys/kernel/debug/dynamic_debug/control])
+
+dnl Now add rules for OVS to forward to the tunnel and local port
+AT_CHECK([ovs-ofctl add-flow br0 "priority=1 action=drop"])
+AT_CHECK([ovs-ofctl add-flow br0 "priority=100 ip,ip_dst=10.1.1.1 action=output:at_gtp0"])
+AT_CHECK([ovs-ofctl add-flow br0 "priority=100 ip,ip_dst=10.1.1.2 action=drop"])
+
+AT_CHECK([ovs-ofctl dump-flows br0 | grep "ip" | ofctl_strip], [0], [dnl
+ priority=100,ip,nw_dst=10.1.1.1 actions=output:1
+ priority=100,ip,nw_dst=10.1.1.2 actions=drop
+])
+
+sleep 1
+NS_CHECK_EXEC([at_ns0], [python3 $srcdir/gtp-packet.py fc00::55:0:111 fc00::55:0:211 10.1.1.1 10.1.1.2 5555 p0 False 1234 2>/dev/null], [0], [dnl
+.
+Sent 1 packets.
+])
+
+AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | grep ip ], [0], [dnl
+ priority=100,ip,nw_dst=10.1.1.1 actions=output:1
+ n_packets=1, n_bytes=43, priority=100,ip,nw_dst=10.1.1.2 actions=drop
+])
+
+NS_CHECK_EXEC([at_ns0], [tcpdump -l -n -xx -U ip6 host fc00::55:0:111 -i p0 > ipv6_xmit.pcap  2>/dev/null &])
+
+sleep 1
+AT_CHECK([ping  10.1.1.1 -q -c 3 -I br0 2>/dev/null | FORMAT_PING], [0], [dnl
+3 packets transmitted, 0 received, 100% packet loss, time 0ms
+])
+
+OVS_WAIT_UNTIL([cat ipv6_xmit.pcap | egrep "IP6 fc00::55:0:211.2152 > fc00::55:0:111.2152: UDP, length 92" 2>&1 1>/dev/null])
+
+AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | grep ip ], [0], [dnl
+ n_packets=3, n_bytes=294, priority=100,ip,nw_dst=10.1.1.1 actions=output:1
+ n_packets=1, n_bytes=43, priority=100,ip,nw_dst=10.1.1.2 actions=drop
+])
+
+dnl sleep 1000
 OVS_TRAFFIC_VSWITCHD_STOP
 AT_CLEANUP
 
@@ -349,7 +558,7 @@ NS_CHECK_EXEC([at_ns0], [ping -q -c 3 -i 0.3 -w 2 172.31.1.100 | FORMAT_PING], [
 
 dnl AT_CHECK([ovs-appctl vlog/set dbg], [0], [ignore])
 dnl AT_CHECK([echo 'module openvswitch +p' > /sys/kernel/debug/dynamic_debug/control])
-    
+
 NS_CHECK_EXEC([at_ns0], [test-gtp 172.31.1.100 3201000a0000000000010000ff0003000a01], [0], [ignore])
 
 AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | grep gtpu], [0], [dnl
@@ -358,6 +567,53 @@ AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | grep gtpu], [0], [dnl
 
 OVS_TRAFFIC_VSWITCHD_STOP
 AT_CLEANUP
+
+AT_SETUP([layer3 - IPv6 GTP echo match test])
+OVS_TRAFFIC_VSWITCHD_START([set Bridge br0 other-config:hwaddr="00:12:34:56:78:bb"])
+OVS_CHECK_GTP_L3()
+OVS_CHECK_MIN_KERNEL(4,10)
+
+ADD_BR([br-underlay])
+
+ADD_NAMESPACES(at_ns0)
+
+dnl Set up underlay link from host into the namespace using veth pair.
+ADD_VETH(p0, at_ns0, br-underlay, "fc00::55:0:111/48")
+AT_CHECK([ip -6 addr add dev br-underlay "fc00::55:0:211/48"])
+AT_CHECK([ip -6 link set dev br-underlay up])
+
+AT_CHECK([modprobe vport_gtp])
+
+dnl Set up tunnel endpoints on OVS outside the namespace and with a native
+dnl linux device inside the namespace.
+
+ADD_OVS_TUNNEL([gtpu], [br0], [at_gtp0], [fc00::55:0:111], [2001::2/64])
+AT_CHECK([ip -6 neigh add 2001::1 lladdr 00:12:34:56:78:aa dev br0])
+
+NS_CHECK_EXEC([at_ns0], [ip link set dev lo up])
+NS_CHECK_EXEC([at_ns0], [ip -6 addr add dev lo 2005:cafe::92/64])
+
+AT_CHECK([ovs-ofctl add-flow br-underlay "actions=normal"])
+
+AT_CHECK([ovs-appctl vlog/set dbg], [0], [ignore])
+AT_CHECK([echo 'module openvswitch +p' > /sys/kernel/debug/dynamic_debug/control])
+
+AT_CHECK([ovs-ofctl add-flow br0 "priority=100 in_port=at_gtp0,tun_gtpu_msgtype=1,tun_gtpu_flags=0x32 action=drop"])
+
+sleep 1
+NS_CHECK_EXEC([at_ns0], [python3 $srcdir/gtp-packet.py fc00::55:0:111 fc00::55:0:211 2001::1 2001::2 5555 p0 True 1234 2>/dev/null], [0], [dnl
+.
+Sent 1 packets.
+])
+
+AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | grep gtpu], [0], [dnl
+ n_packets=1, n_bytes=4, priority=100,gtpu_flags=0x32,gtpu_msgtype=1,in_port=1 actions=drop
+])
+
+dnl sleep 1000
+OVS_TRAFFIC_VSWITCHD_STOP
+AT_CLEANUP
+
 
 AT_SETUP([layer3 - GTP echo response test])
 OVS_TRAFFIC_VSWITCHD_START([set Bridge br0 other-config:hwaddr="00:12:34:56:78:bb"])
@@ -415,6 +671,80 @@ OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0010:.*ac1f 0164 ac1f"       2>&1 1>/dev/
 OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0020:  0101 0868 0868 0016 0000 3202 0006 0000"       2>&1 1>/dev/null])
 OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0030:  0000 0003 0000 0e00"                           2>&1 1>/dev/null])
  
+OVS_TRAFFIC_VSWITCHD_STOP
+AT_CLEANUP
+
+
+AT_SETUP([layer3 - IPv6 GTP echo response test])
+OVS_TRAFFIC_VSWITCHD_START([set Bridge br0 other-config:hwaddr="00:12:34:56:78:bb"])
+
+ADD_BR([br-underlay])
+
+ADD_NAMESPACES(at_ns0)
+
+dnl Set up underlay link from host into the namespace using veth pair.
+ADD_VETH(p0, at_ns0, br-underlay, "fc00::55:0:111/48")
+AT_CHECK([ip -6 addr add dev br-underlay "fc00::55:0:211/48"])
+AT_CHECK([ip -6 link set dev br-underlay up])
+AT_CHECK([modprobe vport_gtp])
+
+dnl Set up tunnel endpoints on OVS outside the namespace and with a native
+dnl linux device inside the namespace.
+
+ADD_OVS_TUNNEL([gtpu], [br0], [at_gtp0], [fc00::55:0:111], [2001::2/64], [options:local_ip=fc00::55:0:211])
+AT_CHECK([ip -6 neigh add 2001::1 lladdr 00:12:34:56:78:aa dev br0])
+
+NS_CHECK_EXEC([at_ns0], [ip link set dev p0 mtu 1480 up])
+AT_CHECK([ovs-vsctl set interface at_gtp0 bfd:min_tx=5000 bfd:min_rx=5000])
+AT_CHECK([ovs-vsctl set interface at_gtp0 bfd:enable=true])
+
+NS_CHECK_EXEC([at_ns0], [ip link set dev lo up])
+NS_CHECK_EXEC([at_ns0], [ip -6 addr add dev lo 2005:cafe::92/64])
+
+AT_CHECK([ovs-ofctl add-flow br-underlay "actions=normal"])
+
+AT_CHECK([ovs-appctl vlog/set dbg], [0], [ignore])
+AT_CHECK([echo 'module openvswitch +p' > /sys/kernel/debug/dynamic_debug/control])
+
+dnl sleep 1000
+AT_CHECK([ovs-appctl tnl/gtp_echo_remote_end_points], [0], [dnl
+Tunnel port: at_gtp0
+])
+
+sleep 1
+NS_CHECK_EXEC([at_ns0], [python3 $srcdir/gtp-packet.py fc00::55:0:111 fc00::55:0:211 2001::1 2001::2 5555 p0 True 1 2>/dev/null], [0], [dnl
+.
+Sent 1 packets.
+])
+sleep 1
+
+AT_CHECK([ovs-appctl tnl/gtp_echo_remote_end_points | sed -e  's/^.*: RX/RX/'], [0], [dnl
+Tunnel port: at_gtp0
+RX: 1 TX: 1 remote ip: 0.0.0.0, seq 1, pending send 0
+])
+
+NS_CHECK_EXEC([at_ns0], [tcpdump -l -n -xx -U udp -i p0 > p1.pcap &])
+sleep 1
+
+NS_CHECK_EXEC([at_ns0], [python3 $srcdir/gtp-packet.py fc00::55:0:111 fc00::55:0:211 2001::1 2001::2 5555 p0 True 3 2>/dev/null], [0], [dnl
+.
+Sent 1 packets.
+])
+
+sleep 2
+AT_CHECK([ovs-appctl tnl/gtp_echo_remote_end_points | sed -e  's/^.*: RX/RX/'], [0], [dnl
+Tunnel port: at_gtp0
+RX: 2 TX: 2 remote ip: 0.0.0.0, seq 3, pending send 0
+])
+
+OVS_WAIT_UNTIL([cat p1.pcap | egrep "IP6 fc00::55:0:111.2152 > fc00::55:0:211.2152: UDP, length 12" 2>&1 1>/dev/null])
+OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0000:.*86dd 6000"                                     2>&1 1>/dev/null])
+OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0010:.*0000 0000 0000"       2>&1 1>/dev/null])
+OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0020:  0055 0000 0111 fc00 0000 0000 0000 0000"       2>&1 1>/dev/null])
+OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0030:  0055 0000 0211 0868 0868 0014 c09b 3201"                                2>&1 1>/dev/null])
+OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0040:  0004 0000 0000 0003 0085"                                2>&1 1>/dev/null])
+
+dnl sleep 1000
 OVS_TRAFFIC_VSWITCHD_STOP
 AT_CLEANUP
 
@@ -498,6 +828,102 @@ RX: 1 TX: 1 remote ip: 172.31.1.2, seq 3, pending send 0
 OVS_TRAFFIC_VSWITCHD_STOP
 AT_CLEANUP
 
+
+AT_SETUP([layer3 - IPv6 GTP echo response test multi endpoint])
+OVS_TRAFFIC_VSWITCHD_START([set Bridge br0 other-config:hwaddr="00:12:34:56:78:bb"])
+
+ADD_BR([br-underlay])
+
+ADD_NAMESPACES(at_ns0)
+ADD_NAMESPACES(at_ns1)
+
+dnl Set up underlay link from host into the namespace using veth pair.
+ADD_VETH(p0, at_ns0, br-underlay, "fc00::55:0:111/48")
+ADD_VETH(p1, at_ns1, br-underlay, "fc00::55:0:112/48")
+AT_CHECK([ip -6 addr add dev br-underlay "fc00::55:0:211/48"])
+AT_CHECK([ip -6 link set dev br-underlay up])
+AT_CHECK([modprobe vport_gtp])
+
+dnl Set up tunnel endpoints on OVS outside the namespace and with a native
+dnl linux device inside the namespace.
+
+ADD_OVS_TUNNEL([gtpu], [br0], [at_gtp0], [fc00::55:0:111], [2001::2/64], [options:local_ip=fc00::55:0:211])
+ADD_OVS_TUNNEL([gtpu], [br0], [at_gtp1], [fc00::55:0:112], [2021::2/64], [options:local_ip=fc00::55:0:211])
+
+AT_CHECK([ip -6 neigh add 2001::1 lladdr 00:12:34:56:78:aa dev br0])
+
+NS_CHECK_EXEC([at_ns0], [ip link set dev p0 mtu 1480 up])
+NS_CHECK_EXEC([at_ns1], [ip link set dev p1 mtu 1480 up])
+
+AT_CHECK([ovs-vsctl set interface at_gtp0 bfd:min_tx=5000 bfd:min_rx=5000])
+AT_CHECK([ovs-vsctl set interface at_gtp0 bfd:enable=true])
+AT_CHECK([ovs-vsctl set interface at_gtp1 bfd:enable=false])
+
+AT_CHECK([ovs-ofctl add-flow br-underlay "actions=normal"])
+
+AT_CHECK([ovs-appctl vlog/set dbg], [0], [ignore])
+AT_CHECK([echo 'module openvswitch +p' > /sys/kernel/debug/dynamic_debug/control])
+
+AT_CHECK([ovs-appctl tnl/gtp_echo_remote_end_points], [0], [dnl
+Tunnel port: at_gtp0
+Tunnel port: at_gtp1
+])
+
+sleep 1
+NS_CHECK_EXEC([at_ns0], [python3 $srcdir/gtp-packet.py fc00::55:0:111 fc00::55:0:211 2001::1 2001::2 5555 p0 True 1 2>/dev/null], [0], [dnl
+.
+Sent 1 packets.
+])
+sleep 2
+AT_CHECK([ovs-appctl tnl/gtp_echo_remote_end_points | sed -e  's/^.*: RX/RX/'], [0], [dnl
+Tunnel port: at_gtp0
+RX: 1 TX: 1 remote ip: 0.0.0.0, seq 1, pending send 0
+Tunnel port: at_gtp1
+])
+
+NS_CHECK_EXEC([at_ns1], [python3 $srcdir/gtp-packet.py fc00::55:0:112 fc00::55:0:211 2001::1 2001::2 5555 p1 True 1 2>/dev/null], [0], [dnl
+.
+Sent 1 packets.
+])
+sleep 2
+AT_CHECK([ovs-appctl tnl/gtp_echo_remote_end_points | sed -e  's/^.*: RX/RX/'], [0], [dnl
+Tunnel port: at_gtp0
+RX: 1 TX: 1 remote ip: 0.0.0.0, seq 1, pending send 0
+Tunnel port: at_gtp1
+])
+
+AT_CHECK([ovs-vsctl set interface at_gtp1 bfd:min_tx=5000 bfd:min_rx=5000])
+AT_CHECK([ovs-vsctl set interface at_gtp1 bfd:enable=true])
+
+NS_CHECK_EXEC([at_ns1], [python3 $srcdir/gtp-packet.py fc00::55:0:112 fc00::55:0:211 2001::1 2001::2 5555 p1 True 3 2>/dev/null], [0], [dnl
+.
+Sent 1 packets.
+])
+sleep 2
+AT_CHECK([ovs-appctl tnl/gtp_echo_remote_end_points | sed -e  's/^.*: RX/RX/'], [0], [dnl
+Tunnel port: at_gtp0
+Tunnel port: at_gtp1
+RX: 1 TX: 1 remote ip: 0.0.0.0, seq 3, pending send 0
+])
+
+
+NS_CHECK_EXEC([at_ns0], [python3 $srcdir/gtp-packet.py fc00::55:0:111 fc00::55:0:211 2001::1 2001::2 5555 p0 True 4 2>/dev/null], [0], [dnl
+.
+Sent 1 packets.
+])
+sleep 2
+AT_CHECK([ovs-appctl tnl/gtp_echo_remote_end_points | sed -e  's/^.*: RX/RX/'], [0], [dnl
+Tunnel port: at_gtp0
+RX: 1 TX: 1 remote ip: 0.0.0.0, seq 4, pending send 0
+Tunnel port: at_gtp1
+RX: 1 TX: 1 remote ip: 0.0.0.0, seq 3, pending send 0
+])
+
+dnl sleep 1000
+OVS_TRAFFIC_VSWITCHD_STOP
+AT_CLEANUP
+
+
 AT_SETUP([layer3 - GTP end marker test])
 OVS_TRAFFIC_VSWITCHD_START([set Bridge br0 other-config:hwaddr="00:12:34:56:78:bb"])
 OVS_CHECK_GTP_L3()
@@ -559,3 +985,64 @@ OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0030:  0064"                             
 
 OVS_TRAFFIC_VSWITCHD_STOP
 AT_CLEANUP
+
+
+AT_SETUP([layer3 - IPv6 GTP end marker test])
+OVS_TRAFFIC_VSWITCHD_START([set Bridge br0 other-config:hwaddr="00:12:34:56:78:bb"])
+OVS_CHECK_GTP_L3()
+OVS_CHECK_MIN_KERNEL(4,10)
+ADD_BR([br-underlay])
+
+ADD_NAMESPACES(at_ns0)
+
+dnl Set up underlay link from host into the namespace using veth pair.
+ADD_VETH(p0, at_ns0, br-underlay, "fc00::55:0:111/48")
+AT_CHECK([ip -6 addr add dev br-underlay "fc00::55:0:211/48"])
+AT_CHECK([ip -6 link set dev br-underlay up])
+dnl NS_CHECK_EXEC([at_ns0], [ip -6 route add default dev p0 via fc00::55:0:211])
+AT_CHECK([modprobe vport_gtp])
+
+dnl Set up tunnel endpoints on OVS outside the namespace and with a native
+dnl linux device inside the namespace.
+
+ADD_OVS_TUNNEL([gtpu], [br0], [at_gtp0], [fc00::55:0:111], [2001::2/64], [options:local_ip=fc00::55:0:211])
+AT_CHECK([ip -6 neigh add 2001::1 lladdr 00:12:34:56:78:aa dev br0])
+
+NS_CHECK_EXEC([at_ns0], [ip link set dev p0 mtu 1480 up])
+AT_CHECK([ovs-vsctl set interface at_gtp0 bfd:min_tx=5000 bfd:min_rx=5000])
+AT_CHECK([ovs-vsctl set interface at_gtp0 bfd:enable=true])
+
+NS_CHECK_EXEC([at_ns0], [ip link set dev lo up])
+NS_CHECK_EXEC([at_ns0], [ip -6 addr add dev lo 2005:cafe::92/64])
+
+AT_CHECK([ovs-ofctl add-flow br-underlay "actions=normal"])
+
+AT_CHECK([ovs-appctl vlog/set dbg], [0], [ignore])
+AT_CHECK([echo 'module openvswitch +p' > /sys/kernel/debug/dynamic_debug/control])
+
+
+dnl Now add rules for OVS to forward to the tunnel and local port
+AT_CHECK([ovs-ofctl add-flow br0 "priority=1 action=drop"])
+AT_CHECK([ovs-ofctl add-flow br0 "priority=100 ip6,ipv6_dst=2001::1 action=output:at_gtp0"])
+AT_CHECK([ovs-ofctl add-flow br0 "priority=100 ip6,ipv6_dst=2001::2 action=mod_dl_src:00:12:34:56:78:aa,mod_dl_dst:00:12:34:56:78:bb,local"])
+AT_CHECK([ovs-ofctl add-flow br0 "priority=100 table=99,action=set_field:0xfe->tun_gtpu_msgtype,set_field:0x30->tun_gtpu_flags,output:at_gtp0"])
+
+
+NS_CHECK_EXEC([at_ns0], [python3 $srcdir/gtp-packet.py fc00::55:0:111 fc00::55:0:211 2001::1 2001::2 5555 p0 False 1234 2>/dev/null], [0], [dnl
+.
+Sent 1 packets.
+])
+sleep 1
+
+NS_CHECK_EXEC([at_ns0], [tcpdump -l -n -xx -U udp -i p0 > p1.pcap &])
+sleep 1
+
+AT_CHECK([ovs-ofctl -O OpenFlow15 packet-out br0 "in_port=local packet=50540000000a5054000000008000, actions=load:100->tun_id[[0..31]],set_field:fc00::55:0:111->tun_ipv6_dst,set_field:0xfe->tun_gtpu_msgtype,set_field:0x30->tun_gtpu_flags,output:at_gtp0"])
+
+OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0030:  0055 0000 0111 0868 0868 0010 0000 30fe"  2>&1 1>/dev/null])
+OVS_WAIT_UNTIL([cat p1.pcap | egrep "0x0040:  0000 0000 0000" 2>&1 1>/dev/null])
+
+dnl sleep 1000
+OVS_TRAFFIC_VSWITCHD_STOP
+AT_CLEANUP
+

@@ -523,7 +523,8 @@ CHECK_PYFILES = \
 	tests/test-unixctl.py \
 	tests/test-vlog.py \
 	tests/uuidfilt.py \
-	tests/sendpkt.py
+	tests/sendpkt.py \
+	tests/gtp-packet.py
 
 EXTRA_DIST += $(CHECK_PYFILES)
 PYCOV_CLEAN_FILES += $(CHECK_PYFILES:.py=.py,cover) .coverage
