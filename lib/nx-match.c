@@ -1201,7 +1201,7 @@ nx_put_raw(struct ofpbuf *b, enum ofp_version oxm, const struct match *match,
                match->wc.masks.tunnel.gtpu_flags);
     nxm_put_8m(&ctx, MFF_TUN_GTPU_MSGTYPE, oxm, flow->tunnel.gtpu_msgtype,
                match->wc.masks.tunnel.gtpu_msgtype);
-
+    nxm_put_8m(&ctx, MFF_QFI, oxm, flow->tunnel.qfi, match->wc.masks.tunnel.qfi);
     /* Network Service Header */
     nxm_put_8m(&ctx, MFF_NSH_FLAGS, oxm, flow->nsh.flags,
             match->wc.masks.nsh.flags);

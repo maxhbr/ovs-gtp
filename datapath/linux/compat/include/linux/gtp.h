@@ -15,6 +15,7 @@ struct gtpu_metadata {
 	__u8	ver;
 	__u8	flags;
 	__u8	type;
+	__u8    qfi;
 };
 
 enum {

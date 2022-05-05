@@ -1601,6 +1601,15 @@ ovs-ofctl add-flow br-int 'in_port=3,tun_src=192.168.1.1,tun_id=5001 actions=1'
       </diagram>
     </field>
 
+    <field id="MFF_QFI" title="qfi">
+      <p>
+        When a packet is received from a tunnel, this field is the
+        source address in the outer IP header of the tunneled packet.
+        This field is zero if the packet was not received over a
+        tunnel.
+      </p>
+    </field>
+
     <field id="MFF_TUN_IPV6_SRC" title="Tunnel IPv6 Source">
       Similar to <ref field="tun_src"/>, but for tunnels over IPv6.
     </field>

@@ -363,6 +363,8 @@ enum ofp_raw_action_type {
 
     /* NX1.0+(50): struct nx_action_delete_field. VLMFF */
     NXAST_RAW_DELETE_FIELD,
+    /* NX1.0+(51): uint8_t. */
+    NXAST_RAW_SET_TUNNEL_QFI,
 
 /* ## ------------------ ## */
 /* ## Debugging actions. ## */
@@ -504,6 +506,7 @@ ofpact_next_flattened(const struct ofpact *ofpact)
     case OFPACT_DEC_NSH_TTL:
     case OFPACT_CHECK_PKT_LARGER:
     case OFPACT_DELETE_FIELD:
+    case OFPACT_SET_TUNNEL_QFI:
         return ofpact_next(ofpact);
 
     case OFPACT_CLONE:
@@ -2502,6 +2505,7 @@ OFP_ASSERT(sizeof(struct onf_action_copy_field) == 24);
  *   - NXM_NX_PKT_MARK
  *   - NXM_NX_TUN_IPV4_SRC
  *   - NXM_NX_TUN_IPV4_DST
+ *   - NXM_NX_QFI
  *
  * The following nxm_header values are potentially acceptable as 'dst':
  *
@@ -4170,6 +4174,70 @@ check_SET_TUNNEL(const struct ofpact_tunnel *a OVS_UNUSED,
 {
     return 0;
 }
+
+static void
+encode_SET_TUNNEL_QFI(const struct ofpact_tun_qfi *tun_qfi,
+                  enum ofp_version ofp_version, struct ofpbuf *out)
+{
+    uint8_t qfi = tun_qfi->qfi;
+    VLOG_DBG(" tun qfi:%d\n", qfi);
+    if (ofp_version < OFP12_VERSION) {
+        put_NXAST_SET_TUNNEL_QFI(out, qfi);
+    } else {
+        put_set_field(out, ofp_version, MFF_QFI, qfi);
+    }
+}
+
+static enum ofperr
+decode_NXAST_RAW_SET_TUNNEL_QFI(uint8_t qfi,
+                            enum ofp_version ofp_version OVS_UNUSED,
+                            struct ofpbuf *out)
+{
+    struct ofpact_tun_qfi *tunnel_qfi = ofpact_put_SET_TUNNEL_QFI(out);
+    tunnel_qfi->ofpact.raw = NXAST_RAW_SET_TUNNEL_QFI;
+    tunnel_qfi->qfi = qfi;
+    VLOG_DBG(" RAW tun qfi:%d\n", qfi);
+    return 0;
+}
+
+static char * OVS_WARN_UNUSED_RESULT
+parse_set_tunnel_qfi(char *arg, const struct ofpact_parse_params *pp)
+{
+    char *error;
+    uint8_t qfi;
+    struct ofpact_tun_qfi *tunnel_qfi;
+
+    error = str_to_u8(arg, "qfi", &qfi);
+    if (error) {
+        return error;
+    }
+    tunnel_qfi = ofpact_put_SET_TUNNEL_QFI(pp->ofpacts);
+    tunnel_qfi->ofpact.raw = NXAST_RAW_SET_TUNNEL_QFI;
+    tunnel_qfi->qfi = qfi;
+    return NULL;
+}
+
+static char * OVS_WARN_UNUSED_RESULT
+parse_SET_TUNNEL_QFI(char *arg, const struct ofpact_parse_params *pp)
+{
+    return parse_set_tunnel_qfi(arg, pp);
+}
+
+static void
+format_SET_TUNNEL_QFI(const struct ofpact_tun_qfi *a,
+                  const struct ofpact_format_params *fp)
+{
+    ds_put_format(fp->s, "%sqfi:%s%d", colors.param,
+                  colors.end, a->qfi);
+}
+
+static enum ofperr
+check_SET_TUNNEL_QFI(const struct ofpact_tun_qfi *a OVS_UNUSED,
+                 const struct ofpact_check_params *cp OVS_UNUSED)
+{
+    return 0;
+}
+
 
 /* Delete field action. */
 
@@ -8005,6 +8073,7 @@ action_set_classify(const struct ofpact *a)
     case OFPACT_SET_TUNNEL:
     case OFPACT_SET_VLAN_PCP:
     case OFPACT_SET_VLAN_VID:
+    case OFPACT_SET_TUNNEL_QFI:
         return ACTION_SLOT_SET_OR_MOVE;
 
     case OFPACT_BUNDLE:
@@ -8238,6 +8307,7 @@ ovs_instruction_type_from_ofpact_type(enum ofpact_type type,
     case OFPACT_DEC_NSH_TTL:
     case OFPACT_CHECK_PKT_LARGER:
     case OFPACT_DELETE_FIELD:
+    case OFPACT_SET_TUNNEL_QFI:
     default:
         return OVSINST_OFPIT11_APPLY_ACTIONS;
     }
@@ -9150,6 +9220,7 @@ ofpact_outputs_to_port(const struct ofpact *ofpact, ofp_port_t port)
     case OFPACT_DEC_NSH_TTL:
     case OFPACT_CHECK_PKT_LARGER:
     case OFPACT_DELETE_FIELD:
+    case OFPACT_SET_TUNNEL_QFI:
     default:
         return false;
     }
@@ -9403,6 +9474,8 @@ ofpacts_parse__(char *str, const struct ofpact_parse_params *pp,
             error = parse_pop_vlan(pp);
         } else if (!strcasecmp(key, "set_tunnel64")) {
             error = parse_set_tunnel(value, NXAST_RAW_SET_TUNNEL64, pp);
+        } else if (!strcasecmp(key, "qfi")) {
+            error = parse_set_tunnel_qfi(value, pp);
         } else if (!strcasecmp(key, "load")) {
             error = parse_reg_load(value, pp);
         } else if (!strcasecmp(key, "bundle_load")) {

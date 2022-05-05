@@ -300,6 +300,8 @@ char *minimatch_to_string(const struct minimatch *,
                           const struct ofputil_port_map *, int priority);
 
 bool minimatch_has_default_hidden_fields(const struct minimatch *);
+void match_set_qfi(struct match *, uint8_t qfi);
+void match_set_qfi_masked(struct match *, uint8_t qfi, uint8_t mask);
 
 #ifdef __cplusplus
 }

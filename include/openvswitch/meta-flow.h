@@ -1960,6 +1960,23 @@ enum OVS_PACKED_ENUM mf_field_id {
      */
     MFF_NSH_TTL,
 
+    /* "qfi".
+     *
+     * The "qfi" in a packet received via a keyed
+     * tunnel. For non-keyed
+     * tunnels and packets not received via a tunnel, the value is 0.
+     *
+     * Type: u8.
+     * Maskable: bitwise.
+     * Formatting: hexadecimal.
+     * Prerequisites: none.
+     * Access: read/write.
+     * NXM: NXM_NX_QFI(126) since v1.1.
+     * OXM: OXM_OF_TUNNEL_QFI(46) since OF1.3 and v1.10.
+     * Prefix lookup member: tunnel.qfi.
+     */
+    MFF_QFI,
+
     MFF_N_IDS
 };
 

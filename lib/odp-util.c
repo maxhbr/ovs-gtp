@@ -3092,6 +3092,9 @@ odp_tun_key_from_attr__(const struct nlattr *attr, bool is_mask,
             if (opts->ver == GTP_METADATA_V1) {
                 tun->gtpu_flags = opts->flags;
                 tun->gtpu_msgtype = opts->msgtype;
+                if (opts->qfi) {
+                    tun->qfi = opts->qfi;
+                }
             } else {
                 VLOG_WARN("%s invalid gtp opts version : %d\n", __func__, opts->ver);
             }
@@ -3212,12 +3215,15 @@ tun_key_to_attr(struct ofpbuf *a, const struct flow_tnl *tun_key,
     }
 
     if ((!tnl_type || !strcmp(tnl_type, "gtpu")) &&
-        (tun_key->gtpu_flags && tun_key->gtpu_msgtype)) {
+        ((tun_key->gtpu_flags && tun_key->gtpu_msgtype) || tun_key->qfi)) {
         struct gtpu_metadata opts;
 
         opts.flags = tun_key->gtpu_flags;
         opts.msgtype = tun_key->gtpu_msgtype;
         opts.ver = GTP_METADATA_V1;
+        if (tun_key->qfi) {
+            opts.qfi = tun_key->qfi;
+        }
         nl_msg_put_unspec(a, OVS_TUNNEL_KEY_ATTR_GTPU_OPTS,
                           &opts, sizeof(opts));
     }
@@ -3747,8 +3753,11 @@ format_odp_tun_gtpu_opt(const struct nlattr *attr,
     if (opts->ver == GTP_METADATA_V1) {
         format_u8x(ds, "flags", opts->flags, !!mask ? &mask->flags : NULL, verbose);
         format_u8x(ds, "msgtype", opts->msgtype, !!mask ? &mask->msgtype : NULL, verbose);
+        if (opts->qfi) {
+            format_u8x(ds, "qfi", opts->qfi, !!mask ? &mask->qfi : NULL, verbose);
+        }
         ds_chomp(ds, ',');
-    } else {
+    }else {
         ds_put_format(ds, "Unknown opt ver %d", opts->ver);
     }
 }

@@ -1398,6 +1398,9 @@ format_flow_tunnel(struct ds *s, const struct match *match)
                             FLOW_TNL_F_MASK);
         ds_put_char(s, ',');
     }
+    if (wc->masks.tunnel.qfi) {
+        ds_put_format(s, "qfi=%"PRIu8",", tnl->qfi);
+    }
     tun_metadata_match_format(s, match);
 }
 
@@ -1981,4 +1984,18 @@ minimatch_has_default_hidden_fields(const struct minimatch *m)
 {
     return (minimatch_has_default_recirc_id(m)
             && minimatch_has_default_dp_hash(m));
+}
+
+void
+match_set_qfi(struct match *match, uint8_t qfi)
+{
+   match_set_qfi_masked(match, qfi, UINT8_MAX);
+}
+
+
+void
+match_set_qfi_masked(struct match *match, uint8_t qfi, uint8_t mask)
+{
+    match->wc.masks.tunnel.qfi = mask;
+    match->flow.tunnel.qfi = qfi & mask;
 }

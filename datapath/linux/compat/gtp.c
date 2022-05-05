@@ -101,10 +101,8 @@ static int gtp_rx(struct sock *sk, struct gtp_dev *gtp, struct sk_buff *skb,
 		struct metadata_dst *tun_dst = &buf.dst;
 #endif
 
-		int opts_len = 0;
-		if (unlikely(type != GTP_TPDU)) {
-			opts_len = sizeof (struct gtpu_metadata);
-		}
+		int opts_len;
+	 	opts_len = sizeof (struct gtpu_metadata);
 #ifndef USE_UPSTREAM_TUNNEL
 		//udp_tun_rx_dst
 		ovs_udp_tun_rx_dst(tun_dst, skb, sk->sk_family, TUNNEL_KEY, tid, opts_len);
@@ -113,18 +111,37 @@ static int gtp_rx(struct sock *sk, struct gtp_dev *gtp, struct sk_buff *skb,
 			udp_tun_rx_dst(skb, sk->sk_family, TUNNEL_KEY, tid, opts_len);
 #endif
 		netdev_dbg(gtp->dev, "attaching metadata_dst to skb, gtp ver %d hdrlen %d\n", gtp_version, hdrlen);
-		if (unlikely(opts_len)) {
-			struct gtpu_metadata *opts = ip_tunnel_info_opts(&tun_dst->u.tun_info);
-			struct gtp1_header *gtp1 = (struct gtp1_header *)(skb->data + sizeof(struct udphdr));
-
-			opts->ver = GTP_METADATA_V1;
-			opts->flags = gtp1->flags;
-			opts->type = gtp1->type;
-			netdev_dbg(gtp->dev, "recved control pkt: flag %x type: %d\n", opts->flags, opts->type);
-			tun_dst->u.tun_info.key.tun_flags |= TUNNEL_GTPU_OPT;
-			tun_dst->u.tun_info.options_len = opts_len;
-			skb->protocol = 0xffff;         // Unknown
+                if (unlikely(opts_len)) {
+                    struct gtpu_metadata *opts = ip_tunnel_info_opts(&tun_dst->u.tun_info);
+                    struct gtp1_header *gtp1 = (struct gtp1_header *)(skb->data + sizeof(struct udphdr));
+		    if (likely(type == GTP_TPDU)){
+	                struct gtpu_ext_hdr *geh;
+			geh = (struct gtpu_ext_hdr *) (gtp1 + 1);
+			if (geh->type == 0x85) {
+			    struct gtpu_ext_hdr_pdu_sc *pdu_sc_hd;
+			    pdu_sc_hd = (struct gtpu_ext_hdr_pdu_sc *) (geh + 1);
+			    if (pdu_sc_hd->qfi) {
+                                opts_len = sizeof (struct gtpu_metadata);
+                                opts->ver = GTP_METADATA_V1;
+                                opts->flags = gtp1->flags;
+                                opts->type = gtp1->type;
+                                opts->qfi = pdu_sc_hd->qfi;
+                                opts_len = opts_len + sizeof(struct gtpu_ext_hdr) + sizeof(struct gtpu_ext_hdr_pdu_sc);
+                                tun_dst->u.tun_info.key.tun_flags |= TUNNEL_GTPU_OPT;
+                                tun_dst->u.tun_info.options_len = opts_len;
+                            }
+                        }
+		    } else {
+		        opts->ver = GTP_METADATA_V1;
+                        opts->flags = gtp1->flags;
+                        opts->type = gtp1->type;
+                        netdev_dbg(gtp->dev, "recved control pkt: flag %x type: %d\n", opts->flags, opts->type);
+                        tun_dst->u.tun_info.key.tun_flags |= TUNNEL_GTPU_OPT;
+                        tun_dst->u.tun_info.options_len = opts_len;
+                        skb->protocol = 0xffff;         // Unknown
+                    }
 		}
+
 		/* Get rid of the GTP + UDP headers. */
 		if (iptunnel_pull_header(skb, hdrlen, skb->protocol,
 					!net_eq(sock_net(sk), dev_net(gtp->dev)))) {
@@ -189,7 +206,7 @@ static int gtp1u_udp_encap_recv(struct sock *sk, struct gtp_dev *gtp, struct sk_
 
 	gtp1 = (struct gtp1_header *)(skb->data + sizeof(struct udphdr));
 
-		netdev_dbg(gtp->dev, "flags %x type: %x\n", gtp1->flags, gtp1->type);
+	netdev_dbg(gtp->dev, "flags %x type: %x\n", gtp1->flags, gtp1->type);
 	if ((gtp1->flags >> 5) != GTP_V1)
 		return 1;
 
@@ -205,7 +222,7 @@ static int gtp1u_udp_encap_recv(struct sock *sk, struct gtp_dev *gtp, struct sk_
 				u8 next_hdr;
 
 				geh = (struct gtpu_ext_hdr *) (gtp1 + 1);
-				netdev_dbg(gtp->dev, "ext type type %d\n", geh->type);
+				netdev_dbg(gtp->dev, "ext type type %d, seq:%d, n_pdu:%d\n", geh->type, geh->seq_num, geh->n_pdu);
 
 				hdrlen += sizeof (struct gtpu_ext_hdr);
 				next_hdr = geh->type;
@@ -322,17 +339,6 @@ static void gtp_dev_uninit(struct net_device *dev)
 	free_percpu(dev->tstats);
 }
 
-const struct gtpu_ext_hdr n_hdr = {
-	.type = 0x85,
-};
-
-const struct gtpu_ext_hdr_pdu_sc pdu_sc_hdr = {
-	.len = 1,
-	.pdu_type = 0x0, /* PDU_TYPE_DL_PDU_SESSION_INFORMATION */
-	.qfi = 9,
-		.next_type = 0,
-};
-
 static unsigned int skb_gso_transport_seglen(const struct sk_buff *skb)
 {
 		const struct skb_shared_info *shinfo = skb_shinfo(skb);
@@ -405,11 +411,17 @@ static inline void gtp1_push_header(struct net_device *dev, struct sk_buff *skb,
 				/* TODO: Suppport for extension header, sequence number and N-PDU.
 				 *       Update the length field if any of them is available.
 				 */
-				next_hdr = (struct gtpu_ext_hdr *) (gtp1 + 1);
-				*next_hdr = n_hdr;
+				struct gtpu_ext_hdr_pdu_sc pdu_sc_hdr;
+				pdu_sc_hdr.len = 1;
+                                pdu_sc_hdr.pdu_type = 0x0; /* PDU_TYPE_DL_PDU_SESSION_INFORMATION */
+                                pdu_sc_hdr.qfi = qfi;
+                                pdu_sc_hdr.next_type = 0;
+
+			        next_hdr = (struct gtpu_ext_hdr *) (gtp1 + 1);
+				next_hdr->type = 0x85;
 				pdu_sc = (struct gtpu_ext_hdr_pdu_sc *) (next_hdr + 1);
 				*pdu_sc = pdu_sc_hdr;
-				pdu_sc->qfi = qfi;
+				netdev_dbg(dev,"Update QFI value for downlink %d for teid %d\n", pdu_sc->qfi, tid);
 		}
 
 }
@@ -571,23 +583,25 @@ static netdev_tx_t gtp_dev_xmit_fb(struct sk_buff *skb, struct net_device *dev)
 
 		netdev_dbg(dev, "packet with opt len %d", info->options_len);
 		if (info->options_len == 0) {
-			if (info->key.tun_flags & TUNNEL_OAM) {
-			   set_qfi = 9;
-			}
-			gtp1_push_header(dev, skb, tunnel_id_to_key32(info->key.tun_id), set_qfi);
+		    gtp1_push_header(dev, skb, tunnel_id_to_key32(info->key.tun_id), set_qfi);
 		} else if (info->key.tun_flags & TUNNEL_GTPU_OPT) {
-				struct gtpu_metadata *opts = ip_tunnel_info_opts(info);
-				__be32 tid = tunnel_id_to_key32(info->key.tun_id);
-				int err;
-
-				err = gtp1_push_control_header(skb, tid, opts, dev);
-			   if (err) {
-						netdev_info(dev, "cntr pkt error %d", err);
-						goto err_rt;
-				}
+		    struct gtpu_metadata *opts = ip_tunnel_info_opts(info);
+		    __be32 tid = tunnel_id_to_key32(info->key.tun_id);
+		    if (info->key.tun_flags & TUNNEL_OAM) {
+                        set_qfi = opts->qfi;
+			gtp1_push_header(dev, skb, tunnel_id_to_key32(info->key.tun_id), set_qfi);
+                    }
+                    else {
+		        int err;
+			err = gtp1_push_control_header(skb, tid, opts, dev);
+			if (err) {
+			    netdev_info(dev, "cntr pkt error %d", err);
+			    goto err_rt;
+			}
+		    }
 		} else {
-			netdev_dbg(dev, "Missing tunnel OPT");
-			goto err_rt;
+		    netdev_dbg(dev, "Missing tunnel OPT");
+		    goto err_rt;
 		}
 		udp_tunnel_xmit_skb(rt, gtp->sk1u, skb,
 					fl4.saddr, fl4.daddr, fl4.flowi4_tos, ttl, df,
@@ -607,32 +621,33 @@ static netdev_tx_t gtp_dev_xmit_fb(struct sk_buff *skb, struct net_device *dev)
 		csum = !!(info->key.tun_flags & TUNNEL_CSUM);
 		err = udp_tunnel_handle_offloads(skb, csum);
 		if (err)
-				goto err_rt;
+		    goto err_rt;
 		netdev_dbg(dev, "skb->protocol %d\n", skb->protocol);
 		ovs_skb_set_inner_protocol(skb, cpu_to_be16(ETH_P_IPV6));
 
 		ttl = info->key.ttl;
 		skb_scrub_packet(skb, !net_eq(sock_net(gtp->sk1u), dev_net(dev)));
-		netdev_dbg(dev, "packet with opt len %d", info->options_len);
-		if (info->options_len == 0) {
-			if (info->key.tun_flags & TUNNEL_OAM) {
-			   set_qfi = 9;
-			}
-			gtp1_push_header(dev, skb, tunnel_id_to_key32(info->key.tun_id), set_qfi);
-		} else if (info->key.tun_flags & TUNNEL_GTPU_OPT) {
-				struct gtpu_metadata *opts = ip_tunnel_info_opts(info);
-				__be32 tid = tunnel_id_to_key32(info->key.tun_id);
-				int err;
+	        if (info->options_len == 0) {
+                    gtp1_push_header(dev, skb, tunnel_id_to_key32(info->key.tun_id), set_qfi);
+                } else if (info->key.tun_flags & TUNNEL_GTPU_OPT) {
+                    struct gtpu_metadata *opts = ip_tunnel_info_opts(info);
+                    __be32 tid = tunnel_id_to_key32(info->key.tun_id);
+                    if (info->key.tun_flags & TUNNEL_OAM) {
+                        set_qfi = opts->qfi;
+                        gtp1_push_header(dev, skb, tunnel_id_to_key32(info->key.tun_id), set_qfi);
+                    } else {
+                        int err;
+                        err = gtp1_push_control_header(skb, tid, opts, dev);
+                        if (err) {
+                            netdev_info(dev, "cntr pkt error %d", err);
+                            goto err_rt;
+                        }
+                    }
+                } else {
+                    netdev_dbg(dev, "Missing tunnel OPT");
+                    goto err_rt;
+                }
 
-				err = gtp1_push_control_header(skb, tid, opts, dev);
-			   if (err) {
-						netdev_info(dev, "cntr pkt error %d", err);
-						goto err_rt;
-				}
-		} else {
-					netdev_dbg(dev, "Missing tunnel OPT");
-					goto err_rt;
-			}
 		udp_tunnel6_xmit_skb(ndst, gtp->sk1u_v6, skb, dev,
 					&fl6.saddr, &fl6.daddr, RT_TOS(info->key.tos), ttl,
 					info->key.label, gtp->gtph_port, gtp->gtph_port,

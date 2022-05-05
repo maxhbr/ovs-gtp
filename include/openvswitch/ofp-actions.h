@@ -95,6 +95,7 @@ struct vl_mff_map;
     OFPACT(POP_MPLS,        ofpact_pop_mpls,    ofpact, "pop_mpls")     \
     OFPACT(DEC_NSH_TTL,     ofpact_null,        ofpact, "dec_nsh_ttl")  \
     OFPACT(DELETE_FIELD,    ofpact_delete_field, ofpact, "delete_field") \
+    OFPACT(SET_TUNNEL_QFI,  ofpact_tun_qfi,      ofpact, "qfi")         \
                                                                         \
     /* Generic encap & decap */                                         \
     OFPACT(ENCAP,           ofpact_encap,       props, "encap")         \
@@ -652,6 +653,17 @@ struct ofpact_check_pkt_larger {
         uint16_t pkt_len;
     );
 };
+
+/* OFPACT_SET_TUN_QFI.
+ *
+ * Used for NXAST_SET_TUN_QFI. */
+struct ofpact_tun_qfi {
+    OFPACT_PADDED_MEMBERS(
+        struct ofpact ofpact;
+        uint8_t qfi;
+    );
+};
+
 /* OFPACT_WRITE_ACTIONS, OFPACT_CLONE.
  *
  * Used for OFPIT11_WRITE_ACTIONS, NXAST_CLONE. */
@@ -659,6 +671,7 @@ struct ofpact_nest {
     OFPACT_PADDED_MEMBERS(struct ofpact ofpact;);
     struct ofpact actions[];
 };
+
 BUILD_ASSERT_DECL(offsetof(struct ofpact_nest, actions) % OFPACT_ALIGNTO == 0);
 BUILD_ASSERT_DECL(offsetof(struct ofpact_nest, actions)
                   == sizeof(struct ofpact_nest));

@@ -1436,8 +1436,9 @@ struct gtpu_metadata {
     uint8_t ver;
     uint8_t flags;
     uint8_t msgtype;
+    uint8_t qfi;
 };
-BUILD_ASSERT_DECL(sizeof(struct gtpu_metadata) == 3);
+BUILD_ASSERT_DECL(sizeof(struct gtpu_metadata) == 4);
 
 /*
  * GTP flags:
@@ -1462,6 +1463,14 @@ struct gtpuhdr_opt {
     uint8_t next_ext_type;
 };
 BUILD_ASSERT_DECL(sizeof(struct gtpuhdr_opt) == 4);
+
+struct gtpu_ext_hdr {
+    uint8_t len;
+    uint8_t pdu_type;
+    uint8_t qfi;
+    uint8_t next_type;
+};
+BUILD_ASSERT_DECL(sizeof(struct gtpu_ext_hdr) == 4);
 
 /* VXLAN protocol header */
 struct vxlanhdr {

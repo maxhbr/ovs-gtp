@@ -273,6 +273,8 @@ mf_is_all_wild(const struct mf_field *mf, const struct flow_wildcards *wc)
         return ipv6_mask_is_any(&wc->masks.ct_ipv6_src);
     case MFF_CT_IPV6_DST:
         return ipv6_mask_is_any(&wc->masks.ct_ipv6_dst);
+    case MFF_QFI:
+        return !wc->masks.tunnel.qfi;
     CASE_MFF_REGS:
         return !wc->masks.regs[mf->id - MFF_REG0];
     CASE_MFF_XREGS:
@@ -584,6 +586,7 @@ mf_is_value_valid(const struct mf_field *mf, const union mf_value *value)
     case MFF_ND_TLL:
     case MFF_ND_RESERVED:
     case MFF_ND_OPTIONS_TYPE:
+    case MFF_QFI:
         return true;
 
     case MFF_IN_PORT_OXM:
@@ -722,6 +725,9 @@ mf_get_value(const struct mf_field *mf, const struct flow *flow,
         break;
     case MFF_TUN_GTPU_MSGTYPE:
         value->u8 = flow->tunnel.gtpu_msgtype;
+        break;
+    case MFF_QFI:
+        value->u8 = flow->tunnel.qfi;
         break;
     CASE_MFF_TUN_METADATA:
         tun_metadata_read(&flow->tunnel, mf, value);
@@ -1059,6 +1065,9 @@ mf_set_value(const struct mf_field *mf,
         break;
     case MFF_TUN_GTPU_MSGTYPE:
         match_set_tun_gtpu_msgtype(match, value->u8);
+        break;
+    case MFF_QFI:
+        match_set_qfi(match, value->u8);
         break;
     CASE_MFF_TUN_METADATA:
         tun_metadata_set_match(mf, value, NULL, match, err_str);
@@ -1477,6 +1486,9 @@ mf_set_flow_value(const struct mf_field *mf,
     case MFF_TUN_ERSPAN_HWID:
         flow->tunnel.erspan_hwid = value->u8;
         break;
+    case MFF_QFI:
+        flow->tunnel.qfi = value->u8;
+        break;
     case MFF_TUN_GTPU_FLAGS:
         flow->tunnel.gtpu_flags = value->u8;
         break;
@@ -1827,6 +1839,7 @@ mf_is_pipeline_field(const struct mf_field *mf)
     CASE_MFF_XREGS:
     CASE_MFF_XXREGS:
     case MFF_PACKET_TYPE:
+    case MFF_QFI:
         return true;
 
     case MFF_DP_HASH:
@@ -2014,6 +2027,9 @@ mf_set_wild(const struct mf_field *mf, struct match *match, char **err_str)
         break;
     case MFF_TUN_GTPU_MSGTYPE:
         match_set_tun_gtpu_msgtype_masked(match, 0, 0);
+        break;
+    case MFF_QFI:
+        match_set_qfi_masked(match, 0, 0);
         break;
     CASE_MFF_TUN_METADATA:
         tun_metadata_set_match(mf, NULL, NULL, match, err_str);
@@ -2421,6 +2437,9 @@ mf_set(const struct mf_field *mf,
         break;
     case MFF_TUN_GTPU_MSGTYPE:
         match_set_tun_gtpu_msgtype_masked(match, value->u8, mask->u8);
+        break;
+    case MFF_QFI:
+        match_set_qfi_masked(match, value->u8, mask->u8);
         break;
     CASE_MFF_TUN_METADATA:
         tun_metadata_set_match(mf, value, mask, match, err_str);
